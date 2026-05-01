@@ -1,305 +1,9 @@
-
-Claude finished the response
-You said: Can you build me a streamlit app that will simulate my debt repayment and investments?
-Can you build me a streamlit app that will simulate my debt repayment and investments? I have a mortgage at 5.4% with 275k ($441 weekly) remaining and car loan at 6.8% ($242 biweekly) with 30k remaining. I want to put all my savings ($3000) towards the car payment right now. I want the simulator to go month by month where I can change certain inputs every month, such as savings amount, tax refund in April, split between mortgage extra payments and investment  after the car is paid off. I want to start with May 2026.
-
-Apr 24
-Claude responded: Now let me build the Streamlit app: Here's your debt simulator!
-
-Reading skill for streamlit/python apps
-Reading skill for streamlit/python apps
-Now let me build the Streamlit app:
-
-
-Ran 2 commands, created a file, read a file
-Ran 2 commands, created a file, read a file
-Here's your debt simulator! To run it:
-
-bash
-pip install streamlit plotly
-streamlit run debt_simulator.py
-What's built in:
-
-May 2026 start, with your exact loan details pre-loaded (mortgage $275k @ 5.4%, $441/wk; car $30k @ 6.8%, $242/biweek)
-Car-first priority — all $3,000/month savings hammer the car loan until it's paid off
-Post-car split — once paid off, a slider lets you set the % between extra mortgage payments and investments
-Month-by-month editor — expand any month to override savings, add a one-time bonus, or adjust the invest/mortgage split
-April months auto-populate a $2,000 tax refund field (adjustable)
-4 charts: debt balances, portfolio growth, monthly interest, and cash allocation breakdown
-Full summary table at the bottom with all figures
-Sidebar controls let you adjust the simulation length (up to 10 years) and assumed annual investment return rate. Based on the defaults, you should see the car paid off in roughly 10–11 months, at which point your full $3k/month starts building wealth.
-
-
-Debt simulator
-PY 
-You said: If I change the mortgage extra to investment ratio in some month, all months after that should reflect that.
-If I change the mortgage extra to investment ratio in some month, all months after that should reflect that. If I cahgne the ratio again in few months after, it should be reflected in the months after that.
-
-Apr 24
-Claude responded: Good point — right now each month is independent.
-Good point — right now each month is independent. I'll implement a "cascade" system where a ratio change in month X propagates forward until overridden again.
-
-
-Viewed 3 files
-Viewed 3 files
-Now I have a clear picture. The key changes needed are:
-
-Separate invest_pct overrides from savings/bonus overrides — only invest_pct cascades forward; savings and bonus remain per-month
-Resolve the effective invest_pct for each month by scanning backwards for the most recent explicit override
-In the UI, show each month's slider pre-populated with the cascaded value, and visually indicate when a month is inheriting vs. overriding
-
-Edited 2 files
-Edited 2 files
-Now update the sidebar reset button and the month editor UI:
-
-
-Update reset button to also clear invest_pct_overrides
-Update reset button to also clear invest_pct_overrides
-Now replace the entire month-by-month editor section with the new cascade-aware UI:
-
-
-Ran 2 commands, edited a file, read a file
-Ran 2 commands, edited a file, read a file
-Here's what changed:
-
-Cascade logic:
-
-invest_pct overrides are now stored separately from savings/bonus overrides
-Before running the simulation, it sweeps forward through all months and resolves the effective invest % for each month — the most recent explicit override wins, and carries forward until another one is set
-So if you set 70% in August, every month from August onward uses 70% until you change it again in, say, January
-UI indicators in the expander title:
-
-◈ 70% inv → this month has an explicit override that cascades forward
-↳ 70% inv → this month is inheriting from an earlier setting
-Inside each month:
-
-The slider always opens at the effective (cascaded) value, so you can see what's currently applied
-A small label beneath the slider confirms whether it's an override or inherited
-An ✕ Remove override button appears only on months with an explicit override — clicking it reverts that month back to inheriting from whatever came before it
-
-Debt simulator
-PY 
-You said: Same with savings rate.
-Same with savings rate.
-
-Apr 24
-Claude responded: Now I have the full picture.
-
-Viewed 3 files
-Viewed 3 files
-Now I have the full picture. I'll apply the same cascade pattern to savings — separate dict, pre-computed cascade, same ◈/↳ badges and remove button.
-
-
-Edited 4 files
-Edited 4 files
-Now update the reset button and the month editor UI:
-
-
-Edited 2 files
-Edited 2 files
-Now replace the per-month editor block with savings cascade support:
-
-
-Ran 2 commands, edited a file, read a file
-Ran 2 commands, edited a file, read a file
-Done! Savings now cascades exactly like the invest ratio. Here's how it all works now:
-
-Monthly savings — change it in any month and it flows forward to all subsequent months until you set a new value
-Invest % ratio — same behaviour as before
-One-time bonus/tax refund — never cascades, stays per-month only
-Each field in the editor shows:
-
-◈ $3,500/mo → this month explicitly sets the value, with a ✕ Remove savings override button to revert it back to inheriting
-↳ $3,500/mo → inheriting from an earlier month's setting
-The expander title also shows both badges at a glance so you can scan the full timeline without opening each month.
-
-
-Debt simulator
-PY 
-You said: I've made some changes to it.
-
-app.py
-py
-
-I've made some changes to it. I want to refine this. Remove all the cascading and monthly editing functionality. I simply want to simulate various scenarios and how fast can I get to $600k in investments with a fully paid off house. Basically I want to see the optimal investment to mortgage payment ratio. I want to be able to change the savings amount in every scenario as well.
-
-1:01 PM
-Claude responded: Let me read the uploaded file first to understand your changes.
-Let me read the uploaded file first to understand your changes.
-
-
-Viewed 2 files
-Viewed 2 files
-
-Read the uploaded app.py
-
-Read truncated simulation section
-Done
-Good — I can see your changes: $72k starting investment balance, $10k April bonus, 71% default invest ratio, and the freed-up car payment logic. Now I'll rewrite the app completely around the scenario comparison concept.
-
-
-Created a file, ran a command, read a file
-Created a file, ran a command, read a file
-
-Rewritten scenario comparison simulator
-app.py
-
-Validate and copy to outputs
-
-Script
-
-Presented file
-Done
-Complete rewrite — much cleaner and focused on what you actually care about. Here's what it does:
-
-Scenario system:
-
-Starts with 5 pre-built scenarios: 0%, 25%, 50%, 75%, 100% to investments (rest goes to extra mortgage)
-Add/remove scenarios freely, up to 6 with distinct colors
-Each scenario has its own name, monthly savings, and invest % slider
-🏆 FASTEST badge automatically highlights which scenario hits the goal first
-Goal tracking — for each scenario it shows:
-
-When you hit $600k portfolio + house paid off
-When the car and mortgage are paid off individually
-Final portfolio value, total interest paid, total invested
-Charts (3 tabs):
-
-Portfolio growth with a $600k goal line across all scenarios
-Mortgage balance decay curves
-Monthly invested amounts (grouped bar)
-Preserved from your file: $72k starting portfolio, $10k April bonus, freed-up car payment recycled after payoff, 120-month default window.
-
-
-App
-PY 
-You said: can you cap the simulations at 10 years?
-can you cap the simulations at 10 years? I want to be able to coast fire in 10 years.
-
-1:07 PM
-Claude responded: Also update the header and footer to reflect the 10-year framing: Done.
-
-Edited 2 files
-Edited 2 files
-
-Cap simulation at 120 months (10 years)
-
-app.py
-+1
--1
-
-Remove the early-stop condition so all scenarios always run the full 10 years
-
-app.py
-+3
--3
-Done
-Also update the header and footer to reflect the 10-year framing:
-
-
-Edited 2 files, ran a command, read a file
-Edited 2 files, ran a command, read a file
-Done. Every scenario now runs exactly 120 months (May 2026 → April 2036) regardless of whether the goal is hit early or not — so the charts always show the full 10-year picture and you can compare where each scenario lands at the same endpoint. The goal reached date still shows in the cards when a scenario crosses $600k + paid-off mortgage within that window.
-
-
-App
-PY 
-You said: make savings amount variable for all scenarios.
-make savings amount variable for all scenarios. Also generate colors dynamically instead of hardcoding them. Add 20 scenarios to begin, all with invest percentage in increment of 1. v
-
-1:14 PM
-Claude responded: With 20 scenarios and a fixed 3-column layout, the card display will be a mess.
-
-Viewed 3 files
-Viewed 3 files
-With 20 scenarios and a fixed 3-column layout, the card display will be a mess. I'll redesign: scenarios configured in a compact table in the sidebar, results shown as a sortable table + charts. Colors generated via HSL spread across the hue wheel.
-
-
-Created 2 files, ran 2 commands, read a file
-Created 2 files, ran 2 commands, read a file
-
-Full rewrite with 20 default scenarios, dynamic colors, shared savings, compact UI
-app.py
-
-Remove old file
-
-Script
-
-Full rewrite with 20 default scenarios, dynamic colors, shared savings, compact UI
-app.py
-
-Validate and copy
-
-Script
-
-Presented file
-Done
-Here's what changed:
-
-20 default scenarios — 0% to 95% invest in steps of 5, each labeled e.g. "30% Invest / 70% Mortgage". Each has its own independent savings amount (defaults to $3,000).
-
-Dynamic colors — generated via HSL color wheel using Python's colorsys. Colors spread evenly across the full spectrum, starting at ~200° (blue) so red isn't used as the "0" scenario. When you add or remove a scenario, all colors automatically rebalance so spacing stays even.
-
-Scenario grid — displayed 4 columns wide. Each card has a name field, savings input, and invest % number input (step of 1, so you can fine-tune to any exact percentage). The slider is gone in favor of the number input since you wanted 1% increments across 20 scenarios.
-
-Bar chart → line chart for Monthly Invested tab — much cleaner with 20 overlapping series.
-
-
-App
-PY 
-You said: I have made some changes.
-
-import streamlit as st import pandas as pd import plotly.graph_objects as go from datetime import date import colorsys # ─── Page Config ────────────────────────────────────────────────────────────── st.set_page_config( page_title="Coast FIRE Planner", page_icon="🎯", layout="wide",
-
-pasted
-
-I have made some changes. Can you make goal investments a variable?
-
-10:57 PM
-Claude responded: The uploaded file is actually the old cascading version.
-
-Edited 2 files, ran 2 commands
-Edited 2 files, ran 2 commands
-The uploaded file is actually the old cascading version. Let me work from the pasted document content directly.
-
-
-Ran 2 commands, read a file
-Ran 2 commands, read a file
-
-Write and validate full updated app
-
-Script
-
-Copy to outputs
-
-Script
-
-Presented file
-Done
-Done. The goal is now fully variable — you'll find "Coast FIRE Goal" in the sidebar as a Target portfolio ($) input, defaulting to $600,000 with $10k steps. It flows through everywhere:
-
-The simulation logic uses it to detect when each scenario hits the goal
-The winner banner and "no scenario" warning show the live value
-The dashed goal line on the Portfolio Growth chart updates its label
-The subtitle and footer both reflect the current target
-
-App
-PY 
-
-
-
-
-
-Claude is AI and can make mistakes. Please double-check responses.
-App · PY
-Copy
-
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from datetime import date
 import colorsys
- 
+
 # ─── Page Config ──────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Coast FIRE Planner",
@@ -307,16 +11,16 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
- 
+
 # ─── CSS ──────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap');
- 
+
 html, body, [class*="css"] { font-family: 'Syne', sans-serif; }
 .stApp { background: linear-gradient(135deg, #0a0e1a 0%, #0d1422 50%, #0a0e1a 100%); }
 h1, h2, h3 { font-family: 'Syne', sans-serif; font-weight: 800; }
- 
+
 div[data-testid="metric-container"] {
     background: #131929; border-radius: 10px;
     padding: 12px 16px; border: 1px solid #2a3550;
@@ -344,7 +48,7 @@ div[data-testid="metric-container"] {
 .stDataFrame { border: 1px solid #2a3550; border-radius: 10px; }
 </style>
 """, unsafe_allow_html=True)
- 
+
 # ─── Constants ────────────────────────────────────────────────────────────────
 MORTGAGE_RATE_ANNUAL = 0.054
 CAR_RATE_ANNUAL      = 0.068
@@ -353,7 +57,7 @@ CAR_BIWEEKLY_PMT     = 242.0
 START_MONTH          = date(2026, 5, 1)
 MAX_MONTHS           = 120
 MONTHS_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
- 
+
 # ─── Color Generation ─────────────────────────────────────────────────────────
 def generate_colors(n):
     """Spread n colors evenly across the hue wheel, vivid & dark-bg-friendly."""
@@ -363,53 +67,53 @@ def generate_colors(n):
         r, g, b = colorsys.hls_to_rgb(hue, 0.62, 0.85)
         colors.append(f"#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}")
     return colors
- 
+
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 def month_date(idx):
     y = START_MONTH.year + (START_MONTH.month - 1 + idx) // 12
     m = (START_MONTH.month - 1 + idx) % 12 + 1
     return date(y, m, 1)
- 
+
 def month_label(idx):
     d = month_date(idx)
     return f"{MONTHS_ABBR[d.month-1]} {d.year}"
- 
+
 # ─── Core Simulation ──────────────────────────────────────────────────────────
 def run_scenario(savings, invest_pct, inv_rate_annual, april_bonus, goal_investment):
     mort_bal = 275_000.0
     car_bal  =  30_000.0
     inv_bal  =  72_000.0
- 
+
     mort_rate_m = MORTGAGE_RATE_ANNUAL / 12
     car_rate_m  = CAR_RATE_ANNUAL / 12
     inv_rate_m  = inv_rate_annual / 100 / 12
- 
+
     car_monthly_pmt  = CAR_BIWEEKLY_PMT  * (26 / 12)
     mort_monthly_pmt = MORTGAGE_WEEKLY_PMT * (52 / 12)
- 
+
     car_paid_label = mort_paid_label = goal_label = None
     goal_idx = None
     rows = []
- 
+
     for i in range(MAX_MONTHS):
         d   = month_date(i)
         lbl = month_label(i)
- 
+
         bonus       = april_bonus if d.month == 4 else 0.0
         car_freed   = car_monthly_pmt if car_bal == 0 else 0.0
         total_avail = savings + bonus + car_freed
- 
+
         mort_interest  = mort_bal * mort_rate_m
         mort_principal = max(0.0, min(mort_monthly_pmt - mort_interest, mort_bal))
- 
+
         if car_bal > 0:
             car_interest  = car_bal * car_rate_m
             car_principal = max(0.0, min(car_monthly_pmt - car_interest, car_bal))
         else:
             car_interest = car_principal = 0.0
- 
+
         car_extra = mort_extra = invested = 0.0
- 
+
         if car_bal > 0:
             car_extra = min(total_avail, max(0.0, car_bal - car_principal))
             leftover  = total_avail - car_extra
@@ -419,22 +123,22 @@ def run_scenario(savings, invest_pct, inv_rate_annual, april_bonus, goal_investm
         else:
             mort_extra = min(total_avail * (1 - invest_pct / 100), mort_bal)
             invested   = total_avail * (invest_pct / 100)
- 
+
         mort_bal = max(0.0, mort_bal - mort_principal - mort_extra)
         if car_bal > 0:
             car_bal = max(0.0, car_bal - car_principal - car_extra)
             if car_bal == 0 and car_paid_label is None:
                 car_paid_label = lbl
- 
+
         if mort_bal == 0 and mort_paid_label is None:
             mort_paid_label = lbl
- 
+
         inv_bal = inv_bal * (1 + inv_rate_m) + invested
- 
+
         if inv_bal >= goal_investment and mort_bal == 0 and goal_label is None:
             goal_label = lbl
             goal_idx   = i
- 
+
         rows.append({
             "idx": i, "label": lbl,
             "mort_bal": mort_bal, "car_bal": car_bal, "inv_bal": inv_bal,
@@ -442,7 +146,7 @@ def run_scenario(savings, invest_pct, inv_rate_annual, april_bonus, goal_investm
             "mort_extra": mort_extra, "car_extra": car_extra,
             "invested": invested, "total_avail": total_avail,
         })
- 
+
     return {
         "rows":           rows,
         "car_paid":       car_paid_label  or "Not paid off",
@@ -454,7 +158,7 @@ def run_scenario(savings, invest_pct, inv_rate_annual, april_bonus, goal_investm
         "total_interest": sum(r["mort_interest"] + r["car_interest"] for r in rows),
         "total_invested": sum(r["invested"] for r in rows),
     }
- 
+
 # ─── Session State ────────────────────────────────────────────────────────────
 def _default_scenarios():
     pcts   = list(range(60, 80, 1))
@@ -463,7 +167,7 @@ def _default_scenarios():
         {"name": f"{p}% Invest / {100-p}% Mortgage", "invest_pct": p, "savings": 3000, "color": c}
         for p, c in zip(pcts, colors)
     ]
- 
+
 if "scenarios" not in st.session_state:
     st.session_state.scenarios = _default_scenarios()
 if "inv_rate" not in st.session_state:
@@ -472,26 +176,26 @@ if "april_bonus" not in st.session_state:
     st.session_state.april_bonus = 10_000.0
 if "goal_investment" not in st.session_state:
     st.session_state.goal_investment = 600_000.0
- 
+
 # ─── Sidebar ──────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## ⚙️ Global Settings")
- 
+
     st.markdown('<div class="section-title">Investment Return</div>', unsafe_allow_html=True)
     inv_rate = st.number_input("Annual return (%)", value=st.session_state.inv_rate,
                                 min_value=0.0, max_value=20.0, step=0.5)
     st.session_state.inv_rate = inv_rate
- 
+
     st.markdown('<div class="section-title">Annual April Bonus</div>', unsafe_allow_html=True)
     april_bonus = st.number_input("Tax refund / bonus ($)", value=st.session_state.april_bonus,
                                    min_value=0.0, step=500.0)
     st.session_state.april_bonus = april_bonus
- 
+
     st.markdown('<div class="section-title">Coast FIRE Goal</div>', unsafe_allow_html=True)
     goal_investment = st.number_input("Target portfolio ($)", value=st.session_state.goal_investment,
                                        min_value=10_000.0, step=10_000.0, format="%.0f")
     st.session_state.goal_investment = goal_investment
- 
+
     st.markdown('<div class="section-title">Starting Position</div>', unsafe_allow_html=True)
     st.markdown(f"""
     <div class="info-box">
@@ -501,7 +205,7 @@ with st.sidebar:
     🎯 Goal: ${goal_investment:,.0f} invested + house paid off
     </div>
     """, unsafe_allow_html=True)
- 
+
     st.markdown('<div class="section-title">Manage Scenarios</div>', unsafe_allow_html=True)
     if st.button("➕ Add Scenario"):
         n = len(st.session_state.scenarios)
@@ -512,23 +216,23 @@ with st.sidebar:
         for j, sc in enumerate(st.session_state.scenarios):
             sc["color"] = new_colors[j]
         st.rerun()
- 
+
     if st.button("🔄 Reset to Defaults"):
         st.session_state.scenarios = _default_scenarios()
         st.rerun()
- 
+
 # ─── Header ───────────────────────────────────────────────────────────────────
 st.markdown("# 🎯 Coast FIRE Scenario Planner")
 st.markdown(f"*10-year projection — find the optimal invest/mortgage split to reach ${goal_investment:,.0f} portfolio + paid-off home*")
- 
+
 # ─── Scenario Config Grid ─────────────────────────────────────────────────────
 st.markdown("### Configure Scenarios")
 st.markdown('<div class="info-box">Each scenario has its own savings amount and invest %. Changes apply instantly to all charts and results below.</div>', unsafe_allow_html=True)
- 
+
 scenarios_cfg = []
 N    = len(st.session_state.scenarios)
 COLS = 4
- 
+
 for row_start in range(0, N, COLS):
     row_scs = st.session_state.scenarios[row_start : row_start + COLS]
     cols = st.columns(len(row_scs))
@@ -550,13 +254,13 @@ for row_start in range(0, N, COLS):
                 st.rerun()
             scenarios_cfg.append({"name": name, "savings": savings,
                                    "invest_pct": invest_pct, "color": sc["color"]})
- 
+
 # Sync back + refresh colors so spacing stays even as count changes
 current_colors = generate_colors(len(scenarios_cfg))
 for i, (cfg, col) in enumerate(zip(scenarios_cfg, current_colors)):
     cfg["color"] = col
     st.session_state.scenarios[i].update(cfg)
- 
+
 # ─── Run Simulations ──────────────────────────────────────────────────────────
 sim_results = []
 for sc in scenarios_cfg:
@@ -564,14 +268,14 @@ for sc in scenarios_cfg:
     res.update({"name": sc["name"], "color": sc["color"],
                 "invest_pct": sc["invest_pct"], "savings": sc["savings"]})
     sim_results.append(res)
- 
+
 goal_reached = [r for r in sim_results if r["goal_reached"]]
 winner = min(goal_reached, key=lambda r: r["goal_idx"]) if goal_reached else None
- 
+
 # ─── Winner Banner ────────────────────────────────────────────────────────────
 st.divider()
 st.markdown("### Results")
- 
+
 if winner:
     st.markdown(f"""
     <div style="background:linear-gradient(90deg,#1a3a2a,#122a1e);border-left:4px solid #51cf66;
@@ -589,7 +293,7 @@ else:
     ⚠️ No scenario reaches ${goal_investment:,.0f} + paid-off home within 10 years. Try increasing savings or investment return.
     </div>
     """, unsafe_allow_html=True)
- 
+
 # ─── Results Table ────────────────────────────────────────────────────────────
 comp_rows = []
 for r in sim_results:
@@ -606,14 +310,14 @@ for r in sim_results:
         "💸 Total Interest": f"${r['total_interest']:,.0f}",
         "🏆":                "✅" if is_w else "",
     })
- 
+
 st.dataframe(pd.DataFrame(comp_rows), use_container_width=True,
              hide_index=True, height=min(42 * N + 60, 620))
- 
+
 # ─── Charts ───────────────────────────────────────────────────────────────────
 st.divider()
 st.markdown("### Charts")
- 
+
 CHART_LAYOUT = dict(
     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(13,20,34,0.8)",
     font=dict(color="#7c90b0", family="Syne"),
@@ -623,9 +327,9 @@ CHART_LAYOUT = dict(
     xaxis=dict(gridcolor="#1e2d45", linecolor="#2a3550"),
     yaxis=dict(gridcolor="#1e2d45", linecolor="#2a3550", tickprefix="$"),
 )
- 
+
 tab1, tab2, tab3 = st.tabs(["📈 Portfolio Growth", "🏠 Mortgage Balance", "📊 Monthly Invested"])
- 
+
 with tab1:
     fig = go.Figure()
     fig.add_hline(y=goal_investment, line_dash="dash", line_color="#ffd43b", line_width=1.5,
@@ -640,7 +344,7 @@ with tab1:
         ))
     fig.update_layout(height=500, **CHART_LAYOUT)
     st.plotly_chart(fig, use_container_width=True)
- 
+
 with tab2:
     fig2 = go.Figure()
     for r in sim_results:
@@ -652,7 +356,7 @@ with tab2:
         ))
     fig2.update_layout(height=500, **CHART_LAYOUT)
     st.plotly_chart(fig2, use_container_width=True)
- 
+
 with tab3:
     fig3 = go.Figure()
     for r in sim_results:
@@ -664,7 +368,7 @@ with tab3:
         ))
     fig3.update_layout(height=500, **CHART_LAYOUT)
     st.plotly_chart(fig3, use_container_width=True)
- 
+
 # ─── Footer ───────────────────────────────────────────────────────────────────
 st.markdown(f"""
 <div class="info-box" style="margin-top:16px;text-align:center">
@@ -673,8 +377,3 @@ $441/wk mortgage · $242/biweek car · freed-up car payment reinvested after pay
 Goal: ${goal_investment:,.0f} invested + mortgage paid off. For planning purposes only.
 </div>
 """, unsafe_allow_html=True)
- 
-
-
-
-
