@@ -164,10 +164,12 @@ def _default_scenarios():
     pcts   = list(range(60, 80, 1))
     colors = generate_colors(len(pcts))
     return [
-        {"name": f"{p}% Invest / {100-p}% Mortgage", "invest_pct": p, "savings": 3000, "color": c}
+        {"name": f"{p}% Invest / {100-p}% Mortgage", "invest_pct": p, "savings": st.session_state.savings_amount, "color": c}
         for p, c in zip(pcts, colors)
     ]
 
+if "savings_amount" not in st.session_state:
+    st.session_state.savings_amount = 3000
 if "scenarios" not in st.session_state:
     st.session_state.scenarios = _default_scenarios()
 if "inv_rate" not in st.session_state:
