@@ -199,9 +199,9 @@ with st.sidebar:
     st.session_state.goal_investment = goal_investment
 
     st.markdown('<div class="section-title">Monthly Savings Amount</div>', unsafe_allow_html=True)
-    goal_investment = st.number_input("Monthly Savings Amount ($)", value=st.session_state.savings_amount,
+    savings_amount = st.number_input("Monthly Savings Amount ($)", value=st.session_state.savings_amount,
                                        min_value=0.0, step=100.0, format="%.0f")
-    st.session_state.goal_investment = goal_investment
+    st.session_state.savings_amount = savings_amount
     
     st.markdown('<div class="section-title">Starting Position</div>', unsafe_allow_html=True)
     st.markdown(f"""
