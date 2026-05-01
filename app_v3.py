@@ -4,47 +4,19 @@ import plotly.graph_objects as go
 from datetime import date
 import colorsys
 
-# ─── Page Config ──────────────────────────────────────────────────────────────
-st.set_page_config(
-    page_title="Coast FIRE Planner",
-    page_icon="🎯",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+st.set_page_config(page_title="Coast FIRE Planner", page_icon="🎯", layout="wide", initial_sidebar_state="expanded")
 
-# ─── CSS ──────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap');
-
 html, body, [class*="css"] { font-family: 'Syne', sans-serif; }
 .stApp { background: linear-gradient(135deg, #0a0e1a 0%, #0d1422 50%, #0a0e1a 100%); }
 h1, h2, h3 { font-family: 'Syne', sans-serif; font-weight: 800; }
-
-div[data-testid="metric-container"] {
-    background: #131929; border-radius: 10px;
-    padding: 12px 16px; border: 1px solid #2a3550;
-}
-.stButton > button {
-    background: linear-gradient(135deg, #1c6ef3 0%, #1557d4 100%);
-    color: white; border: none; border-radius: 8px;
-    font-family: 'Space Mono', monospace; font-weight: 700;
-    letter-spacing: 0.05em; padding: 8px 16px; transition: all 0.2s; width: 100%;
-}
-.stButton > button:hover {
-    background: linear-gradient(135deg, #2980ff 0%, #1c6ef3 100%);
-    transform: translateY(-1px); box-shadow: 0 4px 20px rgba(28,110,243,0.4);
-}
-.info-box {
-    background: #0f1e33; border: 1px solid #1c3a5e; border-radius: 8px;
-    padding: 12px 14px; font-family: 'Space Mono', monospace;
-    font-size: 0.8em; color: #7c90b0; margin: 6px 0;
-}
-.section-title {
-    font-family: 'Space Mono', monospace; font-size: 0.7em;
-    letter-spacing: 0.15em; color: #4dabf7; text-transform: uppercase;
-    margin: 18px 0 6px 0; border-bottom: 1px solid #2a3550; padding-bottom: 5px;
-}
+div[data-testid="metric-container"] { background: #131929; border-radius: 10px; padding: 12px 16px; border: 1px solid #2a3550; }
+.stButton > button { background: linear-gradient(135deg, #1c6ef3 0%, #1557d4 100%); color: white; border: none; border-radius: 8px; font-family: 'Space Mono', monospace; font-weight: 700; letter-spacing: 0.05em; padding: 8px 16px; transition: all 0.2s; width: 100%; }
+.stButton > button:hover { background: linear-gradient(135deg, #2980ff 0%, #1c6ef3 100%); transform: translateY(-1px); box-shadow: 0 4px 20px rgba(28,110,243,0.4); }
+.info-box { background: #0f1e33; border: 1px solid #1c3a5e; border-radius: 8px; padding: 12px 14px; font-family: 'Space Mono', monospace; font-size: 0.8em; color: #7c90b0; margin: 6px 0; }
+.section-title { font-family: 'Space Mono', monospace; font-size: 0.7em; letter-spacing: 0.15em; color: #4dabf7; text-transform: uppercase; margin: 18px 0 6px 0; border-bottom: 1px solid #2a3550; padding-bottom: 5px; }
 .stDataFrame { border: 1px solid #2a3550; border-radius: 10px; }
 </style>
 """, unsafe_allow_html=True)
@@ -58,9 +30,7 @@ START_MONTH          = date(2026, 5, 1)
 MAX_MONTHS           = 120
 MONTHS_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
 
-# ─── Color Generation ─────────────────────────────────────────────────────────
 def generate_colors(n):
-    """Spread n colors evenly across the hue wheel, vivid & dark-bg-friendly."""
     colors = []
     for i in range(n):
         hue = (i / n + 0.56) % 1.0
@@ -68,7 +38,6 @@ def generate_colors(n):
         colors.append(f"#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}")
     return colors
 
-# ─── Helpers ──────────────────────────────────────────────────────────────────
 def month_date(idx):
     y = START_MONTH.year + (START_MONTH.month - 1 + idx) // 12
     m = (START_MONTH.month - 1 + idx) % 12 + 1
@@ -78,42 +47,32 @@ def month_label(idx):
     d = month_date(idx)
     return f"{MONTHS_ABBR[d.month-1]} {d.year}"
 
-# ─── Core Simulation ──────────────────────────────────────────────────────────
 def run_scenario(savings, invest_pct, inv_rate_annual, april_bonus, goal_investment):
     mort_bal = 275_000.0
     car_bal  =  30_000.0
     inv_bal  =  72_000.0
-
     mort_rate_m = MORTGAGE_RATE_ANNUAL / 12
     car_rate_m  = CAR_RATE_ANNUAL / 12
     inv_rate_m  = inv_rate_annual / 100 / 12
-
     car_monthly_pmt  = CAR_BIWEEKLY_PMT  * (26 / 12)
     mort_monthly_pmt = MORTGAGE_WEEKLY_PMT * (52 / 12)
-
     car_paid_label = mort_paid_label = goal_label = None
     goal_idx = None
     rows = []
-
     for i in range(MAX_MONTHS):
         d   = month_date(i)
         lbl = month_label(i)
-
         bonus       = april_bonus if d.month == 4 else 0.0
         car_freed   = car_monthly_pmt if car_bal == 0 else 0.0
         total_avail = savings + bonus + car_freed
-
         mort_interest  = mort_bal * mort_rate_m
         mort_principal = max(0.0, min(mort_monthly_pmt - mort_interest, mort_bal))
-
         if car_bal > 0:
             car_interest  = car_bal * car_rate_m
             car_principal = max(0.0, min(car_monthly_pmt - car_interest, car_bal))
         else:
             car_interest = car_principal = 0.0
-
         car_extra = mort_extra = invested = 0.0
-
         if car_bal > 0:
             car_extra = min(total_avail, max(0.0, car_bal - car_principal))
             leftover  = total_avail - car_extra
@@ -123,32 +82,22 @@ def run_scenario(savings, invest_pct, inv_rate_annual, april_bonus, goal_investm
         else:
             mort_extra = min(total_avail * (1 - invest_pct / 100), mort_bal)
             invested   = total_avail * (invest_pct / 100)
-
         mort_bal = max(0.0, mort_bal - mort_principal - mort_extra)
         if car_bal > 0:
             car_bal = max(0.0, car_bal - car_principal - car_extra)
             if car_bal == 0 and car_paid_label is None:
                 car_paid_label = lbl
-
         if mort_bal == 0 and mort_paid_label is None:
             mort_paid_label = lbl
-
         inv_bal = inv_bal * (1 + inv_rate_m) + invested
-
         if inv_bal >= goal_investment and mort_bal == 0 and goal_label is None:
             goal_label = lbl
             goal_idx   = i
-
-        rows.append({
-            "idx": i, "label": lbl,
-            "mort_bal": mort_bal, "car_bal": car_bal, "inv_bal": inv_bal,
-            "mort_interest": mort_interest, "car_interest": car_interest,
-            "mort_extra": mort_extra, "car_extra": car_extra,
-            "invested": invested, "total_avail": total_avail,
-        })
-
+        rows.append({"idx": i, "label": lbl, "mort_bal": mort_bal, "car_bal": car_bal,
+                     "inv_bal": inv_bal, "mort_interest": mort_interest, "car_interest": car_interest,
+                     "mort_extra": mort_extra, "car_extra": car_extra, "invested": invested})
     return {
-        "rows":           rows,
+        "rows": rows,
         "car_paid":       car_paid_label  or "Not paid off",
         "mort_paid":      mort_paid_label or "Not paid off",
         "goal_reached":   goal_label,
@@ -163,13 +112,12 @@ def run_scenario(savings, invest_pct, inv_rate_annual, april_bonus, goal_investm
 def _default_scenarios():
     pcts   = list(range(60, 80, 1))
     colors = generate_colors(len(pcts))
+    # No savings stored in scenario — driven entirely by global savings_amount
     return [
-        {"name": f"{p}% Invest / {100-p}% Mortgage", "invest_pct": p, "savings": st.session_state.savings_amount, "color": c}
+        {"name": f"{p}% Invest / {100-p}% Mortgage", "invest_pct": p, "color": c}
         for p, c in zip(pcts, colors)
     ]
 
-if "savings_amount" not in st.session_state:
-    st.session_state.savings_amount = 3000.0
 if "scenarios" not in st.session_state:
     st.session_state.scenarios = _default_scenarios()
 if "inv_rate" not in st.session_state:
@@ -178,10 +126,17 @@ if "april_bonus" not in st.session_state:
     st.session_state.april_bonus = 10_000.0
 if "goal_investment" not in st.session_state:
     st.session_state.goal_investment = 600_000.0
+if "savings_amount" not in st.session_state:
+    st.session_state.savings_amount = 3000.0
 
 # ─── Sidebar ──────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## ⚙️ Global Settings")
+
+    st.markdown('<div class="section-title">Monthly Savings</div>', unsafe_allow_html=True)
+    savings_amount = st.number_input("Monthly savings ($)", value=st.session_state.savings_amount,
+                                      min_value=0.0, step=100.0, format="%.0f")
+    st.session_state.savings_amount = savings_amount
 
     st.markdown('<div class="section-title">Investment Return</div>', unsafe_allow_html=True)
     inv_rate = st.number_input("Annual return (%)", value=st.session_state.inv_rate,
@@ -198,11 +153,6 @@ with st.sidebar:
                                        min_value=10_000.0, step=10_000.0, format="%.0f")
     st.session_state.goal_investment = goal_investment
 
-    st.markdown('<div class="section-title">Monthly Savings Amount</div>', unsafe_allow_html=True)
-    savings_amount = st.number_input("Monthly Savings Amount ($)", value=st.session_state.savings_amount,
-                                       min_value=0.0, step=100.0, format="%.0f")
-    st.session_state.savings_amount = savings_amount
-    
     st.markdown('<div class="section-title">Starting Position</div>', unsafe_allow_html=True)
     st.markdown(f"""
     <div class="info-box">
@@ -216,25 +166,22 @@ with st.sidebar:
     st.markdown('<div class="section-title">Manage Scenarios</div>', unsafe_allow_html=True)
     if st.button("➕ Add Scenario"):
         n = len(st.session_state.scenarios)
-        st.session_state.scenarios.append({
-            "name": f"Scenario {n + 1}", "invest_pct": 50, "savings": 3000, "color": "#ffffff"
-        })
+        st.session_state.scenarios.append({"name": f"Scenario {n + 1}", "invest_pct": 50, "color": "#ffffff"})
         new_colors = generate_colors(n + 1)
         for j, sc in enumerate(st.session_state.scenarios):
             sc["color"] = new_colors[j]
         st.rerun()
-
     if st.button("🔄 Reset to Defaults"):
         st.session_state.scenarios = _default_scenarios()
         st.rerun()
 
 # ─── Header ───────────────────────────────────────────────────────────────────
 st.markdown("# 🎯 Coast FIRE Scenario Planner")
-st.markdown(f"*10-year projection — find the optimal invest/mortgage split to reach ${goal_investment:,.0f} portfolio + paid-off home*")
+st.markdown(f"*10-year projection — find the optimal invest/mortgage split to reach ${goal_investment:,.0f} portfolio + paid-off home · savings: ${savings_amount:,.0f}/mo*")
 
 # ─── Scenario Config Grid ─────────────────────────────────────────────────────
 st.markdown("### Configure Scenarios")
-st.markdown('<div class="info-box">Each scenario has its own savings amount and invest %. Changes apply instantly to all charts and results below.</div>', unsafe_allow_html=True)
+st.markdown(f'<div class="info-box">All scenarios use <b>${savings_amount:,.0f}/mo</b> savings (set in sidebar). Each scenario only varies the invest %. Changes apply instantly.</div>', unsafe_allow_html=True)
 
 scenarios_cfg = []
 N    = len(st.session_state.scenarios)
@@ -248,8 +195,6 @@ for row_start in range(0, N, COLS):
         with col:
             st.markdown(f'<div style="height:3px;background:{sc["color"]};border-radius:3px;margin-bottom:6px"></div>', unsafe_allow_html=True)
             name       = st.text_input("Name", value=sc["name"], key=f"name_{i}", label_visibility="collapsed")
-            savings    = st.number_input("Savings $", value=float(sc["savings"]),
-                                          min_value=0.0, step=100.0, key=f"sav_{i}")
             invest_pct = st.number_input("Invest %", value=int(sc["invest_pct"]),
                                           min_value=0, max_value=100, step=1, key=f"pct_{i}")
             st.caption(f"🏠 {100-invest_pct}% mort · 📈 {invest_pct}% inv")
@@ -259,21 +204,20 @@ for row_start in range(0, N, COLS):
                 for j, s in enumerate(st.session_state.scenarios):
                     s["color"] = new_colors[j]
                 st.rerun()
-            scenarios_cfg.append({"name": name, "savings": savings,
-                                   "invest_pct": invest_pct, "color": sc["color"]})
+            scenarios_cfg.append({"name": name, "invest_pct": invest_pct, "color": sc["color"]})
 
-# Sync back + refresh colors so spacing stays even as count changes
+# Sync back + refresh colors
 current_colors = generate_colors(len(scenarios_cfg))
 for i, (cfg, col) in enumerate(zip(scenarios_cfg, current_colors)):
     cfg["color"] = col
     st.session_state.scenarios[i].update(cfg)
 
 # ─── Run Simulations ──────────────────────────────────────────────────────────
+# savings_amount from sidebar flows into every scenario here — no per-scenario copy needed
 sim_results = []
 for sc in scenarios_cfg:
-    res = run_scenario(sc["savings"], sc["invest_pct"], inv_rate, april_bonus, goal_investment)
-    res.update({"name": sc["name"], "color": sc["color"],
-                "invest_pct": sc["invest_pct"], "savings": sc["savings"]})
+    res = run_scenario(savings_amount, sc["invest_pct"], inv_rate, april_bonus, goal_investment)
+    res.update({"name": sc["name"], "color": sc["color"], "invest_pct": sc["invest_pct"], "savings": savings_amount})
     sim_results.append(res)
 
 goal_reached = [r for r in sim_results if r["goal_reached"]]
@@ -306,16 +250,15 @@ comp_rows = []
 for r in sim_results:
     is_w = winner and r["name"] == winner["name"]
     comp_rows.append({
-        "🏷 Scenario":       r["name"],
-        "💰 Savings/mo":     f"${r['savings']:,.0f}",
-        "📈 Invest %":       f"{r['invest_pct']}%",
-        "🏠 Mortgage %":     f"{100 - r['invest_pct']}%",
-        "🎯 Goal Reached":   r["goal_reached"] or "—",
-        "🏠 Mort Paid":      r["mort_paid"],
-        "🚗 Car Paid":       r["car_paid"],
-        "📊 Final Portfolio":f"${r['final_inv']:,.0f}",
-        "💸 Total Interest": f"${r['total_interest']:,.0f}",
-        "🏆":                "✅" if is_w else "",
+        "🏷 Scenario":        r["name"],
+        "📈 Invest %":        f"{r['invest_pct']}%",
+        "🏠 Mortgage %":      f"{100 - r['invest_pct']}%",
+        "🎯 Goal Reached":    r["goal_reached"] or "—",
+        "🏠 Mort Paid":       r["mort_paid"],
+        "🚗 Car Paid":        r["car_paid"],
+        "📊 Final Portfolio": f"${r['final_inv']:,.0f}",
+        "💸 Total Interest":  f"${r['total_interest']:,.0f}",
+        "🏆":                 "✅" if is_w else "",
     })
 
 st.dataframe(pd.DataFrame(comp_rows), use_container_width=True,
@@ -328,8 +271,7 @@ st.markdown("### Charts")
 CHART_LAYOUT = dict(
     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(13,20,34,0.8)",
     font=dict(color="#7c90b0", family="Syne"),
-    legend=dict(bgcolor="rgba(19,25,41,0.9)", bordercolor="#2a3550",
-                borderwidth=1, font=dict(size=10)),
+    legend=dict(bgcolor="rgba(19,25,41,0.9)", bordercolor="#2a3550", borderwidth=1, font=dict(size=10)),
     margin=dict(t=20, b=20, l=10, r=10),
     xaxis=dict(gridcolor="#1e2d45", linecolor="#2a3550"),
     yaxis=dict(gridcolor="#1e2d45", linecolor="#2a3550", tickprefix="$"),
@@ -344,8 +286,7 @@ with tab1:
                   annotation_position="top left")
     for r in sim_results:
         fig.add_trace(go.Scatter(
-            x=[row["label"] for row in r["rows"]],
-            y=[row["inv_bal"] for row in r["rows"]],
+            x=[row["label"] for row in r["rows"]], y=[row["inv_bal"] for row in r["rows"]],
             name=r["name"], line=dict(color=r["color"], width=2),
             hovertemplate="%{x}<br>$%{y:,.0f}<extra>" + r["name"] + "</extra>"
         ))
@@ -356,8 +297,7 @@ with tab2:
     fig2 = go.Figure()
     for r in sim_results:
         fig2.add_trace(go.Scatter(
-            x=[row["label"] for row in r["rows"]],
-            y=[row["mort_bal"] for row in r["rows"]],
+            x=[row["label"] for row in r["rows"]], y=[row["mort_bal"] for row in r["rows"]],
             name=r["name"], line=dict(color=r["color"], width=2),
             hovertemplate="%{x}<br>$%{y:,.0f}<extra>" + r["name"] + "</extra>"
         ))
@@ -368,19 +308,17 @@ with tab3:
     fig3 = go.Figure()
     for r in sim_results:
         fig3.add_trace(go.Scatter(
-            x=[row["label"] for row in r["rows"]],
-            y=[row["invested"] for row in r["rows"]],
+            x=[row["label"] for row in r["rows"]], y=[row["invested"] for row in r["rows"]],
             name=r["name"], line=dict(color=r["color"], width=2),
             hovertemplate="%{x}<br>$%{y:,.0f}<extra>" + r["name"] + "</extra>"
         ))
     fig3.update_layout(height=500, **CHART_LAYOUT)
     st.plotly_chart(fig3, use_container_width=True)
 
-# ─── Footer ───────────────────────────────────────────────────────────────────
 st.markdown(f"""
 <div class="info-box" style="margin-top:16px;text-align:center">
 ⚠️ All scenarios run exactly 10 years (120 months) from May 2026 · $72k starting portfolio ·
 $441/wk mortgage · $242/biweek car · freed-up car payment reinvested after payoff · annual April bonus included.
-Goal: ${goal_investment:,.0f} invested + mortgage paid off. For planning purposes only.
+Savings: ${savings_amount:,.0f}/mo · Goal: ${goal_investment:,.0f} invested + mortgage paid off. For planning purposes only.
 </div>
 """, unsafe_allow_html=True)
