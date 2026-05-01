@@ -169,7 +169,7 @@ def _default_scenarios():
     ]
 
 if "savings_amount" not in st.session_state:
-    st.session_state.savings_amount = 3000
+    st.session_state.savings_amount = 3000.0
 if "scenarios" not in st.session_state:
     st.session_state.scenarios = _default_scenarios()
 if "inv_rate" not in st.session_state:
