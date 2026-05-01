@@ -55,7 +55,7 @@ CAR_RATE_ANNUAL      = 0.068
 MORTGAGE_WEEKLY_PMT  = 441.0
 CAR_BIWEEKLY_PMT     = 242.0
 START_MONTH          = date(2026, 5, 1)
-GOAL_INVESTMENT      = 500_000.0
+GOAL_INVESTMENT      = 600_000.0
 MAX_MONTHS           = 120
 MONTHS_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
 
