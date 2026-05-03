@@ -417,7 +417,7 @@ with tab2:
     }).set_index("Period")
     extra_cum = df_extra[["Period", "Cum. Interest"]].set_index("Period")["Cum. Interest"]
     cum_data["With Extra Payments"] = extra_cum
-    cum_data = cum_data.fillna(method="ffill")
+    cum_data = cum_data.ffill()
 
     st.line_chart(cum_data, height=360, use_container_width=True,
                   color=["#b85c2a", "#4a7c59"])
