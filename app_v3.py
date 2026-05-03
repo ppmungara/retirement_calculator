@@ -93,6 +93,7 @@ def run_scenario(savings, invest_pct, inv_rate_annual, april_bonus, goal_investm
         if inv_bal >= goal_investment and mort_bal == 0 and goal_label is None:
             goal_label = lbl
             goal_idx   = i
+            break
         rows.append({"idx": i, "label": lbl, "mort_bal": mort_bal, "car_bal": car_bal,
                      "inv_bal": inv_bal, "mort_interest": mort_interest, "car_interest": car_interest,
                      "mort_extra": mort_extra, "car_extra": car_extra, "invested": invested})
