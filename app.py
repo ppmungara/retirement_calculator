@@ -1,636 +1,768 @@
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
+import numpy as np
 import plotly.express as px
-from plotly.subplots import make_subplots
-from datetime import date, datetime
-import calendar
-import json
+import plotly.graph_objects as go
+from datetime import datetime
+import io
+import re
 
-# ─── Page Config ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# PAGE CONFIG
+# ─────────────────────────────────────────────
 st.set_page_config(
-    page_title="Debt & Investment Simulator",
-    page_icon="💰",
+    page_title="Spend Lens",
+    page_icon="💳",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ─── Custom CSS ───────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# CUSTOM CSS
+# ─────────────────────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=Syne:wght@400;500;600;700;800&display=swap');
 
+/* ── Base ── */
 html, body, [class*="css"] {
+    font-family: 'DM Mono', monospace;
+    background-color: #0d0f14;
+    color: #e8e4da;
+}
+
+/* ── Hide Streamlit chrome ── */
+#MainMenu, footer, header { visibility: hidden; }
+.block-container { padding-top: 1.5rem; padding-bottom: 2rem; max-width: 1400px; }
+
+/* ── Sidebar ── */
+[data-testid="stSidebar"] {
+    background: #131720;
+    border-right: 1px solid #1f2535;
+}
+[data-testid="stSidebar"] .stMarkdown h1,
+[data-testid="stSidebar"] .stMarkdown h2,
+[data-testid="stSidebar"] .stMarkdown h3 {
     font-family: 'Syne', sans-serif;
+    color: #c8f542;
 }
 
-.main {
-    background: #0a0e1a;
-    color: #e8eaf0;
-}
+/* ── Headings ── */
+h1, h2, h3 { font-family: 'Syne', sans-serif !important; letter-spacing: -0.03em; }
 
-.stApp {
-    background: linear-gradient(135deg, #0a0e1a 0%, #0d1422 50%, #0a0e1a 100%);
-}
-
-h1, h2, h3 {
-    font-family: 'Syne', sans-serif;
-    font-weight: 800;
-}
-
-.metric-card {
-    background: linear-gradient(135deg, #131929 0%, #1a2236 100%);
-    border: 1px solid #2a3550;
-    border-radius: 12px;
-    padding: 20px;
-    margin: 8px 0;
-}
-
-.month-header {
-    background: linear-gradient(90deg, #1e3a5f 0%, #162c4a 100%);
-    border-left: 4px solid #4dabf7;
+/* ── Metric cards ── */
+[data-testid="metric-container"] {
+    background: #131720;
+    border: 1px solid #1f2535;
     border-radius: 8px;
-    padding: 12px 20px;
-    margin: 16px 0 8px 0;
-    font-family: 'Space Mono', monospace;
-    font-weight: 700;
-    font-size: 1.1em;
-    color: #4dabf7;
+    padding: 1rem 1.2rem;
 }
+[data-testid="metric-container"] label { color: #6b7a99 !important; font-size: 0.72rem !important; letter-spacing: 0.08em; text-transform: uppercase; }
+[data-testid="metric-container"] [data-testid="stMetricValue"] { color: #c8f542 !important; font-family: 'Syne', sans-serif !important; font-size: 1.6rem !important; }
+[data-testid="metric-container"] [data-testid="stMetricDelta"] { font-size: 0.75rem !important; }
 
-.car-paid {
-    background: linear-gradient(90deg, #1a3a2a 0%, #122a1e 100%);
-    border-left: 4px solid #51cf66;
-    border-radius: 8px;
-    padding: 12px 20px;
-    margin: 8px 0;
-    color: #51cf66;
-    font-weight: 700;
-}
-
-.stMetric {
-    background: #131929;
-    border-radius: 10px;
-    padding: 12px;
-    border: 1px solid #2a3550;
-}
-
-.stMetric label {
-    color: #7c90b0 !important;
-    font-size: 0.8em !important;
-    font-family: 'Space Mono', monospace !important;
-}
-
-.stMetric [data-testid="metric-container"] {
-    color: #e8eaf0;
-}
-
-div[data-testid="metric-container"] {
-    background: #131929;
-    border-radius: 10px;
-    padding: 12px 16px;
-    border: 1px solid #2a3550;
-}
-
-.stNumberInput input, .stSelectbox select, .stSlider {
-    background: #131929 !important;
-    color: #e8eaf0 !important;
-    border-color: #2a3550 !important;
-}
-
+/* ── Buttons ── */
 .stButton > button {
-    background: linear-gradient(135deg, #1c6ef3 0%, #1557d4 100%);
-    color: white;
+    background: #c8f542;
+    color: #0d0f14;
     border: none;
-    border-radius: 8px;
-    font-family: 'Space Mono', monospace;
-    font-weight: 700;
+    border-radius: 4px;
+    font-family: 'DM Mono', monospace;
+    font-weight: 500;
+    font-size: 0.8rem;
     letter-spacing: 0.05em;
-    padding: 10px 24px;
-    transition: all 0.2s;
+    padding: 0.4rem 1rem;
+    transition: all 0.15s ease;
+}
+.stButton > button:hover { background: #d9ff55; transform: translateY(-1px); }
+
+/* ── Secondary button override ── */
+button[kind="secondary"] {
+    background: transparent !important;
+    border: 1px solid #2a3245 !important;
+    color: #8899bb !important;
+}
+button[kind="secondary"]:hover { border-color: #c8f542 !important; color: #c8f542 !important; }
+
+/* ── Data editor / table ── */
+[data-testid="stDataFrame"], [data-testid="data-grid-canvas"] {
+    border: 1px solid #1f2535 !important;
+    border-radius: 6px;
 }
 
-.stButton > button:hover {
-    background: linear-gradient(135deg, #2980ff 0%, #1c6ef3 100%);
-    transform: translateY(-1px);
-    box-shadow: 0 4px 20px rgba(28, 110, 243, 0.4);
+/* ── Tabs ── */
+[data-testid="stTabs"] button {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.78rem;
+    color: #6b7a99;
+    letter-spacing: 0.04em;
+}
+[data-testid="stTabs"] button[aria-selected="true"] {
+    color: #c8f542 !important;
+    border-bottom-color: #c8f542 !important;
 }
 
-.stExpander {
-    background: #131929;
-    border: 1px solid #2a3550;
-    border-radius: 10px;
+/* ── Selectbox / inputs ── */
+.stSelectbox > div > div, .stTextInput > div > div > input, .stDateInput > div {
+    background: #131720 !important;
+    border-color: #1f2535 !important;
+    border-radius: 4px;
+    color: #e8e4da !important;
 }
+.stSelectbox label, .stTextInput label, .stMultiSelect label { color: #6b7a99 !important; font-size: 0.75rem !important; }
 
-.sidebar .stNumberInput label, .sidebar .stSlider label, .sidebar .stSelectbox label {
-    color: #7c90b0;
-    font-size: 0.85em;
-}
-
-.info-box {
-    background: #0f1e33;
-    border: 1px solid #1c3a5e;
+/* ── File uploader ── */
+[data-testid="stFileUploader"] {
+    border: 1px dashed #2a3245;
     border-radius: 8px;
-    padding: 14px;
-    font-family: 'Space Mono', monospace;
-    font-size: 0.82em;
-    color: #7c90b0;
-    margin: 8px 0;
+    background: #0d1119;
+    padding: 0.5rem;
 }
+[data-testid="stFileUploader"] label { color: #8899bb !important; }
 
-.highlight-green { color: #51cf66; font-weight: 700; }
-.highlight-blue { color: #4dabf7; font-weight: 700; }
-.highlight-orange { color: #ffa94d; font-weight: 700; }
-.highlight-red { color: #ff6b6b; font-weight: 700; }
-
-.section-title {
-    font-family: 'Space Mono', monospace;
-    font-size: 0.75em;
-    letter-spacing: 0.15em;
-    color: #4dabf7;
+/* ── Logo / hero ── */
+.hero-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 2.4rem;
+    font-weight: 800;
+    color: #e8e4da;
+    letter-spacing: -0.04em;
+    line-height: 1;
+}
+.hero-title span { color: #c8f542; }
+.hero-sub {
+    color: #6b7a99;
+    font-size: 0.78rem;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
-    margin: 20px 0 10px 0;
-    border-bottom: 1px solid #2a3550;
-    padding-bottom: 6px;
+    margin-top: 0.3rem;
 }
+.section-label {
+    color: #c8f542;
+    font-size: 0.68rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-bottom: 0.2rem;
+}
+.pill {
+    display: inline-block;
+    padding: 0.15rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+}
+.pill-rogers { background: #1e2e4a; color: #5b9cf6; }
+.pill-ws     { background: #1e3a2a; color: #4ecb71; }
+
+/* ── Category badge colors ── */
+.cat-badge {
+    padding: 0.1rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.68rem;
+    letter-spacing: 0.04em;
+}
+
+/* ── Divider ── */
+hr { border-color: #1f2535 !important; margin: 1.2rem 0 !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# ─── Constants ────────────────────────────────────────────────────────────────
-MORTGAGE_RATE_ANNUAL = 0.054
-CAR_RATE_ANNUAL = 0.068
-MORTGAGE_WEEKLY_PAYMENT = 441.0
-CAR_BIWEEKLY_PAYMENT = 242.0
+# ─────────────────────────────────────────────
+# CONSTANTS
+# ─────────────────────────────────────────────
+CATEGORY_COLORS = {
+    "🍔 Food & Dining": "#f97316",
+    "🛒 Groceries": "#eab308",
+    "🚗 Transport": "#3b82f6",
+    "🏠 Housing & Utilities": "#8b5cf6",
+    "🎬 Entertainment": "#ec4899",
+    "🛍️ Shopping": "#14b8a6",
+    "💊 Health & Wellness": "#22c55e",
+    "✈️ Travel": "#06b6d4",
+    "💰 Transfers & Fees": "#94a3b8",
+    "📱 Subscriptions": "#f43f5e",
+    "🏦 Banking": "#64748b",
+    "❓ Other": "#6b7280",
+}
 
-START_MONTH = date(2026, 5, 1)
+MERCHANT_CATEGORY_MAP = {
+    "Restaurants": "🍔 Food & Dining",
+    "Eating Places": "🍔 Food & Dining",
+    "Fast Food": "🍔 Food & Dining",
+    "Grocery": "🛒 Groceries",
+    "Supermarkets": "🛒 Groceries",
+    "Parking": "🚗 Transport",
+    "Gas": "🚗 Transport",
+    "Fuel": "🚗 Transport",
+    "Taxi": "🚗 Transport",
+    "Transit": "🚗 Transport",
+    "Airlines": "✈️ Travel",
+    "Hotels": "✈️ Travel",
+    "Lodging": "✈️ Travel",
+    "Entertainment": "🎬 Entertainment",
+    "Movie": "🎬 Entertainment",
+    "Drug": "💊 Health & Wellness",
+    "Medical": "💊 Health & Wellness",
+    "Pharmacy": "💊 Health & Wellness",
+    "Clothing": "🛍️ Shopping",
+    "Merchandise": "🛍️ Shopping",
+    "Department Stores": "🛍️ Shopping",
+    "Utilities": "🏠 Housing & Utilities",
+    "Insurance": "🏠 Housing & Utilities",
+    "Subscription": "📱 Subscriptions",
+    "Streaming": "📱 Subscriptions",
+}
 
-MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+def guess_category(merchant_cat: str, merchant_name: str) -> str:
+    text = f"{merchant_cat} {merchant_name}".lower()
+    for keyword, cat in MERCHANT_CATEGORY_MAP.items():
+        if keyword.lower() in text:
+            return cat
+    for keyword in ["spotify", "netflix", "apple", "google", "amazon prime", "disney"]:
+        if keyword in text:
+            return "📱 Subscriptions"
+    for keyword in ["tim horton", "starbucks", "mcdonald", "pizza", "sushi", "restaurant", "cafe", "coffee"]:
+        if keyword in text:
+            return "🍔 Food & Dining"
+    for keyword in ["uber", "lyft", "ttc", "transit", "esso", "petro", "shell", "parkade", "parking"]:
+        if keyword in text:
+            return "🚗 Transport"
+    for keyword in ["shoppers", "rexall", "costco", "walmart", "sobeys", "loblaws", "metro", "safeway", "save-on"]:
+        if keyword in text:
+            return "🛒 Groceries"
+    return "❓ Other"
 
-# ─── Session State Init ───────────────────────────────────────────────────────
-def init_state():
-    if "sim_data" not in st.session_state:
-        st.session_state.sim_data = []
-    if "overrides" not in st.session_state:
-        st.session_state.overrides = {}       # month_key -> {bonus} only
-    if "invest_pct_overrides" not in st.session_state:
-        st.session_state.invest_pct_overrides = {}  # month_key -> float (cascades forward)
-    if "savings_overrides" not in st.session_state:
-        st.session_state.savings_overrides = {}     # month_key -> float (cascades forward)
-    if "sim_months" not in st.session_state:
-        st.session_state.sim_months = 120
-    if "inv_rate" not in st.session_state:
-        st.session_state.inv_rate = 7.0
+# ─────────────────────────────────────────────
+# PARSERS
+# ─────────────────────────────────────────────
+def parse_amount(val) -> float:
+    if pd.isna(val):
+        return 0.0
+    s = str(val).replace("$", "").replace(",", "").strip()
+    try:
+        return float(s)
+    except ValueError:
+        return 0.0
 
-init_state()
-
-def resolve_invest_pct(mk, total_months):
-    """Return the effective invest_pct for a month key, cascading from the most recent override."""
-    ip_overrides = st.session_state.invest_pct_overrides
-    # Walk back through all months up to and including mk to find last explicit override
-    effective = 50.0
-    for i in range(total_months):
-        d = month_key(i)
-        k = d.isoformat()
-        if k in ip_overrides:
-            effective = ip_overrides[k]
-        if k == mk:
-            break
-    return effective
-
-def is_invest_pct_overridden(mk):
-    """True only if this specific month has an explicit override (not inherited)."""
-    return mk in st.session_state.invest_pct_overrides
-
-# ─── Finance Logic ────────────────────────────────────────────────────────────
-def weeks_in_month(year, month):
-    """Approximate weekly payments per month (52/12)"""
-    return 52 / 12
-
-def biweeks_in_month(year, month):
-    return 26 / 12
-
-def month_key(idx):
-    """Return date for month index 0=May2026"""
-    y = START_MONTH.year + (START_MONTH.month - 1 + idx) // 12
-    m = (START_MONTH.month - 1 + idx) % 12 + 1
-    return date(y, m, 1)
-
-def month_label(idx):
-    d = month_key(idx)
-    return f"{MONTHS[d.month-1]} {d.year}"
-
-def run_simulation(total_months, overrides, inv_rate_annual):
-    mortgage_bal = 275000.0
-    car_bal = 30000.0
-    investment_bal = 72000
-    car_paid_month = None
-
-    # Monthly rates
-    mort_rate_m = MORTGAGE_RATE_ANNUAL / 12
-    car_rate_m = CAR_RATE_ANNUAL / 12
-    inv_rate_m = inv_rate_annual / 100 / 12
-
-    # Pre-compute cascaded invest_pct for every month index
-    cascaded_invest_pct = {}
-    effective_pct = 71
-    for i in range(total_months):
-        d = month_key(i)
-        mk = d.isoformat()
-        if mk in st.session_state.invest_pct_overrides:
-            effective_pct = st.session_state.invest_pct_overrides[mk]
-        cascaded_invest_pct[i] = effective_pct
-
-    # Pre-compute cascaded savings for every month index
-    cascaded_savings = {}
-    effective_savings = 3000.0
-    for i in range(total_months):
-        d = month_key(i)
-        mk = d.isoformat()
-        if mk in st.session_state.savings_overrides:
-            effective_savings = st.session_state.savings_overrides[mk]
-        cascaded_savings[i] = effective_savings
-
-    results = []
-
-    for i in range(total_months):
-        d = month_key(i)
-        mk = d.isoformat()
-
-        ov = overrides.get(mk, {})
-        savings = cascaded_savings[i]
-        bonus = ov.get("bonus", 10000.0 if d.month == 4 else 0.0)
-        invest_pct = cascaded_invest_pct[i]
-
-        # After the car is paid off, add the freed-up car payment to available cash
-        car_payment_monthly = CAR_BIWEEKLY_PAYMENT * (26 / 12)
-        car_freed = car_payment_monthly if car_bal == 0 else 0.0
-
-        total_available = savings + bonus + car_freed
-
-        # ── Mortgage scheduled payments ──
-        mort_payments_month = MORTGAGE_WEEKLY_PAYMENT * (52 / 12)
-        mort_interest = mortgage_bal * mort_rate_m
-        mort_principal = min(mort_payments_month - mort_interest, mortgage_bal)
-        if mort_principal < 0:
-            mort_principal = 0
-
-        # ── Car scheduled payments ──
-        car_payments_month = CAR_BIWEEKLY_PAYMENT * (26 / 12)
-        car_interest = car_bal * car_rate_m if car_bal > 0 else 0
-        car_principal = min(car_payments_month - car_interest, car_bal) if car_bal > 0 else 0
-        if car_principal < 0:
-            car_principal = 0
-
-        car_extra = 0.0
-        mort_extra = 0.0
-        invested = 0.0
-
-        if car_bal > 0:
-            # All savings go to car first
-            car_extra = min(total_available, max(0, car_bal - car_principal))
-            leftover = total_available - car_extra
-            # Any leftover after car payoff uses the invest_pct split
-            if leftover > 0:
-                mort_extra = min(leftover * (1 - invest_pct / 100), mortgage_bal)
-                invested = leftover * (invest_pct / 100)
-        else:
-            # Car is paid off — split between mortgage and investments
-            mort_extra = min(total_available * (1 - invest_pct / 100), mortgage_bal)
-            invested = total_available * (invest_pct / 100)
-
-        # ── Apply payments ──
-        mortgage_bal = max(0, mortgage_bal - (mort_principal + mort_extra))
-
-        if car_bal > 0:
-            car_bal = max(0, car_bal - (car_principal + car_extra))
-            if car_bal == 0 and car_paid_month is None:
-                car_paid_month = i
-
-        # ── Investment growth ──
-        investment_bal = investment_bal * (1 + inv_rate_m) + invested
-
-        results.append({
-            "idx": i,
-            "date": d,
-            "label": month_label(i),
-            "mortgage_bal": mortgage_bal,
-            "car_bal": car_bal,
-            "investment_bal": investment_bal,
-            "mort_interest": mort_interest,
-            "car_interest": car_interest,
-            "mort_principal": mort_principal,
-            "mort_extra": mort_extra,
-            "car_principal": car_principal,
-            "car_extra": car_extra,
-            "invested": invested,
-            "savings_used": savings,
-            "bonus": bonus,
-            "invest_pct": invest_pct,
-            "invest_pct_is_override": mk in st.session_state.invest_pct_overrides,
-            "savings_is_override": mk in st.session_state.savings_overrides,
-            "car_paid_month": car_paid_month,
-            "total_available": total_available,
+def parse_rogers(df: pd.DataFrame) -> pd.DataFrame:
+    df.columns = [c.strip() for c in df.columns]
+    rows = []
+    for _, r in df.iterrows():
+        raw_amount = parse_amount(r.get("Amount", 0))
+        # Rogers: positive = expense, negative = payment/credit
+        amount = abs(raw_amount) if raw_amount > 0 else raw_amount
+        is_expense = raw_amount > 0
+        rows.append({
+            "date": pd.to_datetime(r.get("Date", r.get("Posted Date", "")), errors="coerce"),
+            "description": str(r.get("Merchant Name", "")).strip(),
+            "merchant_category": str(r.get("Merchant Category Description", "")).strip(),
+            "amount": amount,
+            "is_expense": is_expense,
+            "currency": "CAD",
+            "source": "Rogers Bank",
+            "account": str(r.get("Card Number", "")).strip(),
+            "city": str(r.get("Merchant City", "")).strip(),
+            "province": str(r.get("Merchant State or Province", "")).strip(),
+            "raw_type": str(r.get("Activity Type", "")).strip(),
+            "status": str(r.get("Activity Status", "")).strip(),
         })
+    out = pd.DataFrame(rows)
+    out["category"] = out.apply(lambda x: guess_category(x["merchant_category"], x["description"]), axis=1)
+    return out
 
-        if mortgage_bal == 0 and car_bal == 0:
-            break
+def parse_wealthsimple(df: pd.DataFrame) -> pd.DataFrame:
+    df.columns = [c.strip() for c in df.columns]
+    rows = []
+    for _, r in df.iterrows():
+        raw_amount = parse_amount(r.get("net_cash_amount", 0))
+        # WS: negative = spending, positive = deposit
+        amount = abs(raw_amount)
+        is_expense = raw_amount < 0
+        name = str(r.get("name", "")).strip()
+        if not name or name == "nan":
+            name = str(r.get("activity_sub_type", r.get("activity_type", ""))).strip()
+        rows.append({
+            "date": pd.to_datetime(r.get("transaction_date", r.get("settlement_date", "")), errors="coerce"),
+            "description": name,
+            "merchant_category": str(r.get("activity_sub_type", r.get("activity_type", ""))).strip(),
+            "amount": amount,
+            "is_expense": is_expense,
+            "currency": str(r.get("currency", "CAD")).strip(),
+            "source": "Wealthsimple",
+            "account": str(r.get("account_id", "")).strip(),
+            "city": "",
+            "province": "",
+            "raw_type": str(r.get("activity_type", "")).strip(),
+            "status": "",
+        })
+    out = pd.DataFrame(rows)
+    out["category"] = out.apply(lambda x: guess_category(x["merchant_category"], x["description"]), axis=1)
+    # Override common WS types
+    out.loc[out["raw_type"].str.upper() == "DIVIDEND", "category"] = "🏦 Banking"
+    out.loc[out["raw_type"].str.upper() == "DEPOSIT", "category"] = "💰 Transfers & Fees"
+    out.loc[out["raw_type"].str.upper() == "WITHDRAWAL", "category"] = "💰 Transfers & Fees"
+    return out
 
-    return results
+def standardize(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.dropna(subset=["date"])
+    df = df.sort_values("date", ascending=False).reset_index(drop=True)
+    df["id"] = df.index
+    return df
 
-# ─── Sidebar ─────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# SESSION STATE INIT
+# ─────────────────────────────────────────────
+if "transactions" not in st.session_state:
+    st.session_state.transactions = pd.DataFrame()
+if "deleted_ids" not in st.session_state:
+    st.session_state.deleted_ids = set()
+
+# ─────────────────────────────────────────────
+# SIDEBAR
+# ─────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## ⚙️ Settings")
-    st.markdown('<div class="section-title">Simulation Range</div>', unsafe_allow_html=True)
-    sim_months = st.slider("Months to simulate", 12, 120, st.session_state.sim_months, 12)
-    st.session_state.sim_months = sim_months
-
-    st.markdown('<div class="section-title">Investment Return</div>', unsafe_allow_html=True)
-    inv_rate = st.number_input("Annual return (%)", value=st.session_state.inv_rate, min_value=0.0, max_value=20.0, step=0.5)
-    st.session_state.inv_rate = inv_rate
-
-    st.markdown('<div class="section-title">Loan Details</div>', unsafe_allow_html=True)
-    st.markdown(f"""
-    <div class="info-box">
-    🏠 <span class="highlight-blue">Mortgage</span><br>
-    Balance: $275,000<br>
-    Rate: 5.4% | $441/wk<br><br>
-    🚗 <span class="highlight-orange">Car Loan</span><br>
-    Balance: $30,000<br>
-    Rate: 6.8% | $242/biweek
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown('<div class="section-title">Quick Reset</div>', unsafe_allow_html=True)
-    if st.button("🔄 Reset All Overrides"):
-        st.session_state.overrides = {}
-        st.session_state.invest_pct_overrides = {}
-        st.session_state.savings_overrides = {}
-        st.rerun()
-
-# ─── Run simulation ───────────────────────────────────────────────────────────
-results = run_simulation(sim_months, st.session_state.overrides, inv_rate)
-
-# ─── Header ──────────────────────────────────────────────────────────────────
-st.markdown("# 💰 Debt & Investment Simulator")
-st.markdown(f"*Starting May 2026 · {sim_months} month projection*")
-
-# ─── Summary Metrics ─────────────────────────────────────────────────────────
-last = results[-1]
-first = results[0]
-
-# Find car payoff
-car_payoff_label = "Not paid off"
-car_payoff_idx = None
-for r in results:
-    if r["car_bal"] == 0 and car_payoff_idx is None:
-        car_payoff_idx = r["idx"]
-        car_payoff_label = r["label"]
-
-# Mortgage payoff
-mort_payoff_label = "Not paid off"
-for r in results:
-    if r["mortgage_bal"] == 0:
-        mort_payoff_label = r["label"]
-        break
-
-total_interest = sum(r["mort_interest"] + r["car_interest"] for r in results)
-total_invested = sum(r["invested"] for r in results)
-
-col1, col2, col3, col4, col5 = st.columns(5)
-with col1:
-    st.metric("🏠 Mortgage Balance", f"${last['mortgage_bal']:,.0f}", 
-              delta=f"-${275000 - last['mortgage_bal']:,.0f}")
-with col2:
-    st.metric("🚗 Car Balance", f"${last['car_bal']:,.0f}",
-              delta=f"Paid off {car_payoff_label}" if last["car_bal"] == 0 else f"-${30000 - last['car_bal']:,.0f}")
-with col3:
-    st.metric("📈 Investment Portfolio", f"${last['investment_bal']:,.0f}",
-              delta=f"+${last['investment_bal'] - total_invested:,.0f} growth")
-with col4:
-    st.metric("💸 Total Interest Paid", f"${total_interest:,.0f}")
-with col5:
-    st.metric("🎯 Car Payoff", car_payoff_label)
-
-st.divider()
-
-# ─── Charts ──────────────────────────────────────────────────────────────────
-tab1, tab2 = st.tabs(["📊 Charts", "📅 Month-by-Month Editor"])
-
-with tab1:
-    labels = [r["label"] for r in results]
-    
-    fig = make_subplots(
-        rows=2, cols=2,
-        subplot_titles=("Debt Balances Over Time", "Investment Portfolio Growth",
-                        "Monthly Interest Paid", "Monthly Cash Allocation"),
-        vertical_spacing=0.12,
-        horizontal_spacing=0.08,
-    )
-
-    # Debt balances
-    fig.add_trace(go.Scatter(
-        x=labels, y=[r["mortgage_bal"] for r in results],
-        name="Mortgage", line=dict(color="#4dabf7", width=2.5),
-        fill="tozeroy", fillcolor="rgba(77,171,247,0.08)"
-    ), row=1, col=1)
-    fig.add_trace(go.Scatter(
-        x=labels, y=[r["car_bal"] for r in results],
-        name="Car Loan", line=dict(color="#ffa94d", width=2.5),
-        fill="tozeroy", fillcolor="rgba(255,169,77,0.1)"
-    ), row=1, col=1)
-
-    # Investments
-    fig.add_trace(go.Scatter(
-        x=labels, y=[r["investment_bal"] for r in results],
-        name="Portfolio", line=dict(color="#51cf66", width=2.5),
-        fill="tozeroy", fillcolor="rgba(81,207,102,0.08)"
-    ), row=1, col=2)
-    fig.add_trace(go.Bar(
-        x=labels, y=[r["invested"] for r in results],
-        name="Monthly Invest", marker_color="rgba(81,207,102,0.35)"
-    ), row=1, col=2)
-
-    # Interest
-    fig.add_trace(go.Bar(
-        x=labels, y=[r["mort_interest"] for r in results],
-        name="Mortgage Interest", marker_color="rgba(77,171,247,0.6)"
-    ), row=2, col=1)
-    fig.add_trace(go.Bar(
-        x=labels, y=[r["car_interest"] for r in results],
-        name="Car Interest", marker_color="rgba(255,169,77,0.6)"
-    ), row=2, col=1)
-
-    # Cash allocation stacked
-    fig.add_trace(go.Bar(
-        x=labels, y=[r["mort_extra"] for r in results],
-        name="Extra Mortgage", marker_color="rgba(77,171,247,0.7)"
-    ), row=2, col=2)
-    fig.add_trace(go.Bar(
-        x=labels, y=[r["car_extra"] for r in results],
-        name="Extra Car", marker_color="rgba(255,169,77,0.7)"
-    ), row=2, col=2)
-    fig.add_trace(go.Bar(
-        x=labels, y=[r["invested"] for r in results],
-        name="Invested", marker_color="rgba(81,207,102,0.7)"
-    ), row=2, col=2)
-
-    fig.update_layout(
-        height=700,
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(13,20,34,0.8)",
-        font=dict(color="#7c90b0", family="Syne"),
-        barmode="stack",
-        legend=dict(
-            bgcolor="rgba(19,25,41,0.9)",
-            bordercolor="#2a3550",
-            borderwidth=1,
-            font=dict(size=11),
-        ),
-        margin=dict(t=40, b=20, l=10, r=10),
-    )
-    fig.update_xaxes(gridcolor="#1e2d45", linecolor="#2a3550", tickfont=dict(size=10))
-    fig.update_yaxes(gridcolor="#1e2d45", linecolor="#2a3550", tickprefix="$", tickfont=dict(size=10))
-    
-    st.plotly_chart(fig, use_container_width=True)
-
-# ─── Month-by-Month Editor ────────────────────────────────────────────────────
-with tab2:
-    st.markdown("### Adjust inputs for each month")
     st.markdown("""
-    <div class="info-box">
-    💡 <b>How it works:</b> Car payments are priority until paid off. Once the car is paid off, 
-    your savings split between extra mortgage payments and investments based on the % slider.<br><br>
-    🔁 <b>Cascading inputs:</b> Changing <b>monthly savings</b> or the <b>invest %</b> in any month 
-    automatically applies it to all following months — until you set a different value later. 
-    Months showing <span style="color:#4dabf7">◈ SET HERE</span> have an explicit override; 
-    <span style="color:#7c90b0">↳ inherited</span> months are cascading from a prior setting.
-    April months show a one-time tax refund field (never cascades).
+    <div style='padding: 0.5rem 0 1rem 0;'>
+        <div class='hero-title'>Spend<span>Lens</span></div>
+        <div class='hero-sub'>Personal Finance Tracker</div>
     </div>
     """, unsafe_allow_html=True)
+    st.markdown("---")
 
-    if car_payoff_idx is not None:
-        st.markdown(f"""
-        <div class="car-paid">
-        ✅ CAR LOAN PAID OFF in {car_payoff_label}! 
-        Freed-up cash now splits between mortgage & investments.
+    st.markdown("<div class='section-label'>📥 Upload Data</div>", unsafe_allow_html=True)
+
+    rogers_file = st.file_uploader(
+        "Rogers Bank CSV",
+        type=["csv"],
+        key="rogers_upload",
+        help="Export from Rogers Bank portal as CSV"
+    )
+    ws_file = st.file_uploader(
+        "Wealthsimple CSV",
+        type=["csv"],
+        key="ws_upload",
+        help="Export from Wealthsimple as CSV"
+    )
+
+    if st.button("🔄 Process Files", use_container_width=True):
+        frames = []
+        errors = []
+
+        if rogers_file:
+            try:
+                rdf = pd.read_csv(rogers_file)
+                parsed = parse_rogers(rdf)
+                frames.append(parsed)
+                st.success(f"Rogers: {len(parsed)} rows loaded")
+            except Exception as e:
+                errors.append(f"Rogers error: {e}")
+
+        if ws_file:
+            try:
+                wdf = pd.read_csv(ws_file)
+                parsed = parse_wealthsimple(wdf)
+                frames.append(parsed)
+                st.success(f"Wealthsimple: {len(parsed)} rows loaded")
+            except Exception as e:
+                errors.append(f"WS error: {e}")
+
+        for err in errors:
+            st.error(err)
+
+        if frames:
+            combined = pd.concat(frames, ignore_index=True)
+            st.session_state.transactions = standardize(combined)
+            st.session_state.deleted_ids = set()
+            st.rerun()
+
+    st.markdown("---")
+
+    # Filters (only show when data loaded)
+    if not st.session_state.transactions.empty:
+        df_all = st.session_state.transactions
+        df_active = df_all[~df_all["id"].isin(st.session_state.deleted_ids)]
+
+        st.markdown("<div class='section-label'>🔍 Filters</div>", unsafe_allow_html=True)
+
+        sources = ["All"] + sorted(df_active["source"].unique().tolist())
+        sel_source = st.selectbox("Source", sources)
+
+        cats = sorted(df_active["category"].unique().tolist())
+        sel_cats = st.multiselect("Categories", cats, default=cats)
+
+        min_d = df_active["date"].min().date()
+        max_d = df_active["date"].max().date()
+        date_range = st.date_input("Date range", value=(min_d, max_d), min_value=min_d, max_value=max_d)
+
+        show_expenses_only = st.checkbox("Expenses only", value=True)
+
+        st.markdown("---")
+        if st.button("🗑️ Clear All Data", use_container_width=True):
+            st.session_state.transactions = pd.DataFrame()
+            st.session_state.deleted_ids = set()
+            st.rerun()
+
+# ─────────────────────────────────────────────
+# MAIN AREA
+# ─────────────────────────────────────────────
+if st.session_state.transactions.empty:
+    # ── Empty state ──
+    st.markdown("""
+    <div style='display:flex; flex-direction:column; align-items:center; justify-content:center;
+                min-height:70vh; text-align:center; gap:1rem;'>
+        <div style='font-size:4rem;'>💳</div>
+        <div class='hero-title'>Spend<span style="color:#c8f542">Lens</span></div>
+        <div style='color:#6b7a99; font-size:0.85rem; max-width:420px; line-height:1.7;'>
+            Upload your <strong style="color:#5b9cf6">Rogers Bank</strong> and 
+            <strong style="color:#4ecb71">Wealthsimple</strong> CSV exports in the sidebar
+            to get a clear picture of your spending habits.
         </div>
-        """, unsafe_allow_html=True)
+        <div style='margin-top:1rem; padding:1rem 2rem; border:1px dashed #2a3245;
+                    border-radius:8px; color:#4a5568; font-size:0.75rem; line-height:1.8;'>
+            ✓ &nbsp;Automatic category detection<br>
+            ✓ &nbsp;Interactive charts & breakdowns<br>
+            ✓ &nbsp;Reclassify & delete transactions<br>
+            ✓ &nbsp;Multi-source data standardization
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    st.stop()
 
-    for r in results:
-        d = r["date"]
-        mk = d.isoformat()
-        ov = st.session_state.overrides.get(mk, {})
+# ── Apply filters ──
+df_all = st.session_state.transactions
+df_active = df_all[~df_all["id"].isin(st.session_state.deleted_ids)].copy()
 
-        is_car_paid_this_month = (r["idx"] == car_payoff_idx)
-        car_active = r["car_bal"] > 0 or is_car_paid_this_month
+if sel_source != "All":
+    df_active = df_active[df_active["source"] == sel_source]
+if sel_cats:
+    df_active = df_active[df_active["category"].isin(sel_cats)]
+if len(date_range) == 2:
+    start_d, end_d = date_range
+    df_active = df_active[(df_active["date"].dt.date >= start_d) & (df_active["date"].dt.date <= end_d)]
+if show_expenses_only:
+    df_active = df_active[df_active["is_expense"]]
 
-        eff_savings = r["savings_used"]
-        this_month_sets_savings = r["savings_is_override"]
-        def_bonus = ov.get("bonus", 2000.0 if d.month == 4 else 0.0)
+expenses = df_active[df_active["is_expense"]]
 
-        eff_invest_pct = r["invest_pct"]
-        this_month_sets_pct = r["invest_pct_is_override"]
+# ─────────────────────────────────────────────
+# TABS
+# ─────────────────────────────────────────────
+tab_overview, tab_charts, tab_transactions = st.tabs([
+    "📊  Overview", "📈  Charts", "📋  Transactions"
+])
 
-        car_status = "🚗 PAYING CAR" if car_active else "📈 INVESTING"
-        sav_badge = f"◈ ${eff_savings:,.0f}/mo" if this_month_sets_savings else f"↳ ${eff_savings:,.0f}/mo"
-        pct_badge = f"◈ {int(eff_invest_pct)}% inv" if this_month_sets_pct else f"↳ {int(eff_invest_pct)}% inv"
+# ══════════════════════════════════════════════
+# TAB 1: OVERVIEW
+# ══════════════════════════════════════════════
+with tab_overview:
+    total_spend = expenses["amount"].sum()
+    num_txn = len(expenses)
+    avg_txn = expenses["amount"].mean() if num_txn > 0 else 0
+    top_cat = expenses.groupby("category")["amount"].sum().idxmax() if num_txn > 0 else "—"
 
-        with st.expander(f"**{r['label']}** — {car_status} | {sav_badge} | {pct_badge} | 🏠 ${r['mortgage_bal']:,.0f} | 📈 ${r['investment_bal']:,.0f}"):
-            c1, c2, c3 = st.columns([2, 2, 3])
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Total Spend", f"${total_spend:,.2f}")
+    c2.metric("Transactions", f"{num_txn}")
+    c3.metric("Avg Transaction", f"${avg_txn:,.2f}")
+    c4.metric("Top Category", top_cat.split(" ", 1)[-1] if top_cat != "—" else "—")
 
-            with c1:
-                new_savings = st.number_input(
-                    "Monthly savings ($)",
-                    value=float(eff_savings), min_value=0.0, step=100.0,
-                    key=f"sav_{mk}"
-                )
-                if this_month_sets_savings:
-                    st.markdown("<span style='color:#4dabf7;font-size:0.8em;'>◈ Override set here — cascades forward</span>", unsafe_allow_html=True)
-                    if st.button("✕ Remove savings override", key=f"clrsav_{mk}"):
-                        del st.session_state.savings_overrides[mk]
-                        st.rerun()
-                else:
-                    st.markdown("<span style='color:#7c90b0;font-size:0.8em;'>↳ Inherited from earlier month</span>", unsafe_allow_html=True)
+    st.markdown("---")
 
-            with c2:
-                new_bonus = st.number_input(
-                    "One-time extra / tax refund ($)" if d.month == 4 else "One-time extra ($)",
-                    value=float(def_bonus), min_value=0.0, step=100.0,
-                    key=f"bon_{mk}"
-                )
+    col_l, col_r = st.columns([1, 1])
 
-            with c3:
-                if not car_active:
-                    new_invest_pct = st.slider(
-                        "% to investments (rest → extra mortgage)",
-                        0, 100, int(eff_invest_pct), 5,
-                        key=f"inv_{mk}"
-                    )
-                    if this_month_sets_pct:
-                        st.markdown("<span style='color:#4dabf7;font-size:0.8em;'>◈ Override set here — cascades forward</span>", unsafe_allow_html=True)
-                        if st.button("✕ Remove ratio override", key=f"clr_{mk}"):
-                            del st.session_state.invest_pct_overrides[mk]
-                            st.rerun()
-                    else:
-                        st.markdown("<span style='color:#7c90b0;font-size:0.8em;'>↳ Inherited from earlier month</span>", unsafe_allow_html=True)
-                else:
-                    new_invest_pct = eff_invest_pct
-                    st.markdown("<div style='color:#ffa94d;font-size:0.85em;margin-top:22px;'>💳 All savings → car payoff first</div>", unsafe_allow_html=True)
+    with col_l:
+        st.markdown("<div class='section-label'>Spending by Category</div>", unsafe_allow_html=True)
+        if not expenses.empty:
+            cat_summary = (
+                expenses.groupby("category")["amount"]
+                .sum()
+                .sort_values(ascending=False)
+                .reset_index()
+            )
+            cat_summary["color"] = cat_summary["category"].map(
+                lambda c: CATEGORY_COLORS.get(c, "#6b7280")
+            )
+            fig = px.bar(
+                cat_summary,
+                x="amount",
+                y="category",
+                orientation="h",
+                color="category",
+                color_discrete_map=CATEGORY_COLORS,
+                text=cat_summary["amount"].apply(lambda x: f"${x:,.0f}"),
+            )
+            fig.update_traces(textposition="outside", marker_line_width=0)
+            fig.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font_color="#e8e4da",
+                font_family="DM Mono",
+                showlegend=False,
+                yaxis=dict(autorange="reversed", gridcolor="#1f2535", title=""),
+                xaxis=dict(gridcolor="#1f2535", title="Amount (CAD)", tickprefix="$"),
+                margin=dict(l=10, r=80, t=10, b=10),
+                height=380,
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
-            # Summary row
+    with col_r:
+        st.markdown("<div class='section-label'>Category Share</div>", unsafe_allow_html=True)
+        if not expenses.empty:
+            fig2 = px.pie(
+                cat_summary,
+                values="amount",
+                names="category",
+                color="category",
+                color_discrete_map=CATEGORY_COLORS,
+                hole=0.55,
+            )
+            fig2.update_traces(
+                textinfo="percent",
+                textfont_size=11,
+                marker=dict(line=dict(color="#0d0f14", width=2)),
+            )
+            fig2.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)",
+                font_color="#e8e4da",
+                font_family="DM Mono",
+                showlegend=True,
+                legend=dict(font=dict(size=10), orientation="v"),
+                margin=dict(l=10, r=10, t=10, b=10),
+                height=380,
+            )
+            st.plotly_chart(fig2, use_container_width=True)
+
+    # Source breakdown
+    st.markdown("<div class='section-label'>Source Breakdown</div>", unsafe_allow_html=True)
+    src_cols = st.columns(len(expenses["source"].unique()) if not expenses.empty else 1)
+    for i, (src, grp) in enumerate(expenses.groupby("source")):
+        badge = "pill-rogers" if "Rogers" in src else "pill-ws"
+        with src_cols[i]:
             st.markdown(f"""
-            <div class="info-box" style="margin-top:8px;">
-            Monthly interest: 🏠 <span class="highlight-blue">${r['mort_interest']:.0f}</span> | 
-            🚗 <span class="highlight-orange">${r['car_interest']:.0f}</span> &nbsp;|&nbsp; 
-            Extra car: <span class="highlight-orange">${r['car_extra']:.0f}</span> | 
-            Extra mortgage: <span class="highlight-blue">${r['mort_extra']:.0f}</span> | 
-            Invested: <span class="highlight-green">${r['invested']:.0f}</span>
+            <div style='background:#131720; border:1px solid #1f2535; border-radius:8px;
+                        padding:1rem; text-align:center;'>
+                <div class='pill {badge}'>{src}</div>
+                <div style='font-family:Syne,sans-serif; font-size:1.8rem; color:#c8f542;
+                            margin-top:0.5rem;'>${grp["amount"].sum():,.2f}</div>
+                <div style='color:#6b7a99; font-size:0.72rem;'>{len(grp)} transactions</div>
             </div>
             """, unsafe_allow_html=True)
 
-            # ── Persist bonus override (never cascades) ──
-            new_ov = {}
-            if new_bonus != (2000.0 if d.month == 4 else 0.0):
-                new_ov["bonus"] = new_bonus
-            if new_ov:
-                st.session_state.overrides[mk] = new_ov
-            elif mk in st.session_state.overrides:
-                del st.session_state.overrides[mk]
+# ══════════════════════════════════════════════
+# TAB 2: CHARTS
+# ══════════════════════════════════════════════
+with tab_charts:
+    if expenses.empty:
+        st.info("No expense data to chart with current filters.")
+    else:
+        # Monthly trend
+        st.markdown("<div class='section-label'>Monthly Spending Trend</div>", unsafe_allow_html=True)
+        monthly = (
+            expenses.copy()
+            .assign(month=lambda d: d["date"].dt.to_period("M").astype(str))
+            .groupby(["month", "category"])["amount"]
+            .sum()
+            .reset_index()
+        )
+        fig_trend = px.bar(
+            monthly,
+            x="month",
+            y="amount",
+            color="category",
+            color_discrete_map=CATEGORY_COLORS,
+            barmode="stack",
+        )
+        fig_trend.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font_color="#e8e4da",
+            font_family="DM Mono",
+            xaxis=dict(gridcolor="#1f2535", title="Month"),
+            yaxis=dict(gridcolor="#1f2535", title="Amount (CAD)", tickprefix="$"),
+            legend=dict(font=dict(size=10)),
+            margin=dict(l=10, r=10, t=10, b=10),
+            height=340,
+        )
+        st.plotly_chart(fig_trend, use_container_width=True)
 
-            # ── Persist savings cascade override ──
-            if new_savings != eff_savings:
-                st.session_state.savings_overrides[mk] = float(new_savings)
+        col_a, col_b = st.columns(2)
 
-            # ── Persist invest_pct cascade override ──
-            if not car_active and new_invest_pct != eff_invest_pct:
-                st.session_state.invest_pct_overrides[mk] = float(new_invest_pct)
+        with col_a:
+            # Weekday heatmap
+            st.markdown("<div class='section-label'>Spending by Day of Week</div>", unsafe_allow_html=True)
+            dow = expenses.copy()
+            dow["weekday"] = dow["date"].dt.day_name()
+            dow_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+            dow_sum = dow.groupby("weekday")["amount"].sum().reindex(dow_order).fillna(0).reset_index()
+            fig_dow = px.bar(
+                dow_sum,
+                x="weekday",
+                y="amount",
+                color="amount",
+                color_continuous_scale=["#1f2535", "#c8f542"],
+                text=dow_sum["amount"].apply(lambda x: f"${x:,.0f}"),
+            )
+            fig_dow.update_traces(textposition="outside")
+            fig_dow.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font_color="#e8e4da",
+                font_family="DM Mono",
+                xaxis=dict(gridcolor="#1f2535", title=""),
+                yaxis=dict(gridcolor="#1f2535", title="", tickprefix="$"),
+                coloraxis_showscale=False,
+                margin=dict(l=10, r=10, t=10, b=10),
+                height=300,
+            )
+            st.plotly_chart(fig_dow, use_container_width=True)
 
-# ─── Summary Table ────────────────────────────────────────────────────────────
-st.divider()
-st.markdown("### 📋 Full Simulation Summary")
+        with col_b:
+            # Top merchants
+            st.markdown("<div class='section-label'>Top 10 Merchants</div>", unsafe_allow_html=True)
+            top_merch = (
+                expenses.groupby("description")["amount"]
+                .sum()
+                .sort_values(ascending=False)
+                .head(10)
+                .reset_index()
+            )
+            fig_merch = px.bar(
+                top_merch,
+                x="amount",
+                y="description",
+                orientation="h",
+                color="amount",
+                color_continuous_scale=["#1f2535", "#5b9cf6"],
+                text=top_merch["amount"].apply(lambda x: f"${x:,.0f}"),
+            )
+            fig_merch.update_traces(textposition="outside")
+            fig_merch.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font_color="#e8e4da",
+                font_family="DM Mono",
+                yaxis=dict(autorange="reversed", gridcolor="#1f2535", title=""),
+                xaxis=dict(gridcolor="#1f2535", title="", tickprefix="$"),
+                coloraxis_showscale=False,
+                margin=dict(l=10, r=80, t=10, b=10),
+                height=300,
+            )
+            st.plotly_chart(fig_merch, use_container_width=True)
 
-df = pd.DataFrame([{
-    "Month": r["label"],
-    "Mortgage Bal": f"${r['mortgage_bal']:,.0f}",
-    "Car Bal": f"${r['car_bal']:,.0f}",
-    "Portfolio": f"${r['investment_bal']:,.0f}",
-    "Mort Interest": f"${r['mort_interest']:.0f}",
-    "Car Interest": f"${r['car_interest']:.0f}",
-    "Extra Car": f"${r['car_extra']:.0f}",
-    "Extra Mort": f"${r['mort_extra']:.0f}",
-    "Invested": f"${r['invested']:.0f}",
-    "Savings": f"${r['savings_used']:,.0f}",
-    "Bonus": f"${r['bonus']:,.0f}",
-    "Total Available": f"${r['total_available']:,.0f}",
-} for r in results])
+        # Rolling 7-day
+        st.markdown("<div class='section-label'>Daily Spend (7-day Rolling Avg)</div>", unsafe_allow_html=True)
+        daily = expenses.groupby("date")["amount"].sum().reset_index().sort_values("date")
+        daily["rolling"] = daily["amount"].rolling(7, min_periods=1).mean()
+        fig_roll = go.Figure()
+        fig_roll.add_trace(go.Bar(
+            x=daily["date"], y=daily["amount"],
+            name="Daily", marker_color="#1f2535", opacity=0.7
+        ))
+        fig_roll.add_trace(go.Scatter(
+            x=daily["date"], y=daily["rolling"],
+            name="7-day avg", line=dict(color="#c8f542", width=2)
+        ))
+        fig_roll.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font_color="#e8e4da",
+            font_family="DM Mono",
+            xaxis=dict(gridcolor="#1f2535"),
+            yaxis=dict(gridcolor="#1f2535", tickprefix="$"),
+            legend=dict(font=dict(size=10)),
+            margin=dict(l=10, r=10, t=10, b=10),
+            height=280,
+        )
+        st.plotly_chart(fig_roll, use_container_width=True)
 
-st.dataframe(df, use_container_width=True, height=400, hide_index=True)
+# ══════════════════════════════════════════════
+# TAB 3: TRANSACTIONS
+# ══════════════════════════════════════════════
+with tab_transactions:
+    st.markdown(
+        f"<div class='section-label'>{len(df_active)} transactions — select rows to reclassify or delete</div>",
+        unsafe_allow_html=True
+    )
 
-# ─── Footer ──────────────────────────────────────────────────────────────────
-st.markdown("""
-<div class="info-box" style="margin-top:20px; text-align:center;">
-⚠️ <b>Disclaimer:</b> This simulator is for planning purposes only. 
-Actual results will vary based on payment timing, rate changes, and other factors. 
-Mortgage uses weekly payments (52/yr), car uses biweekly (26/yr), prorated monthly.
-</div>
-""", unsafe_allow_html=True)
+    # Search
+    search = st.text_input("🔍 Search description", placeholder="e.g. Tim Hortons, Uber…", label_visibility="collapsed")
+    if search:
+        df_active = df_active[df_active["description"].str.contains(search, case=False, na=False)]
+
+    # Build display df
+    display_df = df_active[[
+        "id", "date", "description", "merchant_category", "category",
+        "amount", "is_expense", "currency", "source", "account", "city"
+    ]].copy()
+    display_df["date"] = display_df["date"].dt.strftime("%Y-%m-%d")
+    display_df["amount_fmt"] = display_df.apply(
+        lambda r: f"{'−' if r['is_expense'] else '+'} ${r['amount']:,.2f} {r['currency']}", axis=1
+    )
+    display_df = display_df.drop(columns=["is_expense", "currency"])
+
+    # Editable table for reclassification
+    edited = st.data_editor(
+        display_df.drop(columns=["id", "amount"]),
+        column_config={
+            "date":              st.column_config.TextColumn("Date", width="small"),
+            "description":       st.column_config.TextColumn("Description", width="medium"),
+            "merchant_category": st.column_config.TextColumn("Raw Category", width="medium"),
+            "category":          st.column_config.SelectboxColumn(
+                "Category",
+                options=list(CATEGORY_COLORS.keys()),
+                width="medium",
+                required=True,
+            ),
+            "amount_fmt":        st.column_config.TextColumn("Amount", width="small"),
+            "source":            st.column_config.TextColumn("Source", width="small"),
+            "account":           st.column_config.TextColumn("Account", width="small"),
+            "city":              st.column_config.TextColumn("City", width="small"),
+        },
+        use_container_width=True,
+        hide_index=True,
+        num_rows="fixed",
+        height=500,
+        key="txn_editor",
+    )
+
+    col_save, col_del, col_export, _ = st.columns([1.2, 1.2, 1.2, 4])
+
+    with col_save:
+        if st.button("💾 Save Changes"):
+            # Merge edited categories back
+            edited_ids = display_df["id"].values
+            new_cats = edited["category"].values
+            for tid, cat in zip(edited_ids, new_cats):
+                st.session_state.transactions.loc[
+                    st.session_state.transactions["id"] == tid, "category"
+                ] = cat
+            st.success("Categories updated!")
+            st.rerun()
+
+    with col_del:
+        if st.button("🗑️ Delete Shown"):
+            ids_to_del = set(display_df["id"].values)
+            st.session_state.deleted_ids.update(ids_to_del)
+            st.warning(f"Deleted {len(ids_to_del)} transactions.")
+            st.rerun()
+
+    with col_export:
+        if st.button("📤 Export CSV"):
+            df_export = st.session_state.transactions[
+                ~st.session_state.transactions["id"].isin(st.session_state.deleted_ids)
+            ]
+            csv_bytes = df_export.to_csv(index=False).encode()
+            st.download_button(
+                "⬇️ Download",
+                data=csv_bytes,
+                file_name=f"transactions_{datetime.today().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+            )
+
+    # Restore deleted
+    if st.session_state.deleted_ids:
+        st.markdown("---")
+        if st.button(f"↩️ Restore {len(st.session_state.deleted_ids)} deleted transaction(s)"):
+            st.session_state.deleted_ids = set()
+            st.rerun()
