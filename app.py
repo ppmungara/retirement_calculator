@@ -332,46 +332,62 @@ with st.sidebar:
 
     st.markdown("<div class='section-label'>📥 Upload Data</div>", unsafe_allow_html=True)
 
-    rogers_file = st.file_uploader(
-        "Rogers Bank CSV",
+    rogers_files = st.file_uploader(
+        "Rogers Bank CSVs",
         type=["csv"],
         key="rogers_upload",
-        help="Export from Rogers Bank portal as CSV"
+        accept_multiple_files=True,
+        help="Select one or more Rogers Bank CSV exports"
     )
-    ws_file = st.file_uploader(
-        "Wealthsimple CSV",
+    ws_files = st.file_uploader(
+        "Wealthsimple CSVs",
         type=["csv"],
         key="ws_upload",
-        help="Export from Wealthsimple as CSV"
+        accept_multiple_files=True,
+        help="Select one or more Wealthsimple CSV exports"
     )
+
+    # Show file counts
+    if rogers_files:
+        st.markdown(f"<div style='color:#5b9cf6; font-size:0.72rem;'>📄 {len(rogers_files)} Rogers file(s) ready</div>", unsafe_allow_html=True)
+    if ws_files:
+        st.markdown(f"<div style='color:#4ecb71; font-size:0.72rem;'>📄 {len(ws_files)} Wealthsimple file(s) ready</div>", unsafe_allow_html=True)
 
     if st.button("🔄 Process Files", use_container_width=True):
         frames = []
         errors = []
+        total_rogers = 0
+        total_ws = 0
 
-        if rogers_file:
+        for f in (rogers_files or []):
             try:
-                rdf = pd.read_csv(rogers_file)
+                rdf = pd.read_csv(f)
                 parsed = parse_rogers(rdf)
                 frames.append(parsed)
-                st.success(f"Rogers: {len(parsed)} rows loaded")
+                total_rogers += len(parsed)
             except Exception as e:
-                errors.append(f"Rogers error: {e}")
+                errors.append(f"Rogers '{f.name}': {e}")
 
-        if ws_file:
+        for f in (ws_files or []):
             try:
-                wdf = pd.read_csv(ws_file)
+                wdf = pd.read_csv(f)
                 parsed = parse_wealthsimple(wdf)
                 frames.append(parsed)
-                st.success(f"Wealthsimple: {len(parsed)} rows loaded")
+                total_ws += len(parsed)
             except Exception as e:
-                errors.append(f"WS error: {e}")
+                errors.append(f"Wealthsimple '{f.name}': {e}")
 
+        if total_rogers:
+            st.success(f"Rogers: {total_rogers} rows from {len(rogers_files)} file(s)")
+        if total_ws:
+            st.success(f"Wealthsimple: {total_ws} rows from {len(ws_files)} file(s)")
         for err in errors:
             st.error(err)
 
         if frames:
             combined = pd.concat(frames, ignore_index=True)
+            # Deduplicate on key fields in case files overlap
+            combined = combined.drop_duplicates(subset=["date", "description", "amount", "source"])
             st.session_state.transactions = standardize(combined)
             st.session_state.deleted_ids = set()
             st.rerun()
