@@ -63,10 +63,13 @@ def run_scenario(savings, invest_pct, inv_rate_annual, april_bonus, goal_investm
         d   = month_date(i)
         lbl = month_label(i)
         bonus       = april_bonus if d.month == 4 else 0.0
-        car_freed   = car_monthly_pmt if car_bal == 0 else 0.0
-        total_avail = savings + bonus + car_freed
+        car_freed   = car_monthly_pmt  if car_bal  == 0 else 0.0
+        mort_freed  = mort_monthly_pmt if mort_bal == 0 else 0.0
+        total_avail = savings + bonus + car_freed + mort_freed
         mort_interest  = mort_bal * mort_rate_m
         mort_principal = max(0.0, min(mort_monthly_pmt - mort_interest, mort_bal))
+        # Prepayment can only touch what the scheduled principal leaves behind.
+        mort_room      = max(0.0, mort_bal - mort_principal)
         if car_bal > 0:
             car_interest  = car_bal * car_rate_m
             car_principal = max(0.0, min(car_monthly_pmt - car_interest, car_bal))
@@ -77,11 +80,11 @@ def run_scenario(savings, invest_pct, inv_rate_annual, april_bonus, goal_investm
             car_extra = min(total_avail, max(0.0, car_bal - car_principal))
             leftover  = total_avail - car_extra
             if leftover > 0:
-                mort_extra = min(leftover * (1 - invest_pct / 100), mort_bal)
-                invested   = leftover * (invest_pct / 100)
+                mort_extra = min(leftover * (1 - invest_pct / 100), mort_room)
+                invested   = leftover - mort_extra
         else:
-            mort_extra = min(total_avail * (1 - invest_pct / 100), mort_bal)
-            invested   = total_avail * (invest_pct / 100)
+            mort_extra = min(total_avail * (1 - invest_pct / 100), mort_room)
+            invested   = total_avail - mort_extra
         mort_bal = max(0.0, mort_bal - mort_principal - mort_extra)
         if car_bal > 0:
             car_bal = max(0.0, car_bal - car_principal - car_extra)
@@ -96,9 +99,7 @@ def run_scenario(savings, invest_pct, inv_rate_annual, april_bonus, goal_investm
         rows.append({"idx": i, "label": lbl, "mort_bal": mort_bal, "car_bal": car_bal,
                      "inv_bal": inv_bal, "mort_interest": mort_interest, "car_interest": car_interest,
                      "mort_extra": mort_extra, "car_extra": car_extra, "invested": invested})
-        if inv_bal >= goal_investment and mort_bal == 0:
-            break
-    
+
     return {
         "rows": rows,
         "car_paid":       car_paid_label  or "Not paid off",
@@ -116,13 +117,21 @@ def _default_scenarios():
     pcts   = list(range(60, 80, 1))
     colors = generate_colors(len(pcts))
     # No savings stored in scenario — driven entirely by global savings_amount
+    # sid is a stable per-scenario id so widget keys survive deletions.
     return [
-        {"name": f"{p}% Invest / {100-p}% Mortgage", "invest_pct": p, "color": c}
-        for p, c in zip(pcts, colors)
+        {"sid": i, "name": f"{p}% Invest / {100-p}% Mortgage", "invest_pct": p, "color": c}
+        for i, (p, c) in enumerate(zip(pcts, colors))
     ]
 
 if "scenarios" not in st.session_state:
     st.session_state.scenarios = _default_scenarios()
+if "next_sid" not in st.session_state:
+    st.session_state.next_sid = len(st.session_state.scenarios)
+# Sessions open across a redeploy may still hold pre-sid scenario dicts.
+for _i, _sc in enumerate(st.session_state.scenarios):
+    if "sid" not in _sc:
+        _sc["sid"] = _i
+        st.session_state.next_sid = max(st.session_state.next_sid, _i + 1)
 if "inv_rate" not in st.session_state:
     st.session_state.inv_rate = 7.0
 if "april_bonus" not in st.session_state:
@@ -169,13 +178,16 @@ with st.sidebar:
     st.markdown('<div class="section-title">Manage Scenarios</div>', unsafe_allow_html=True)
     if st.button("➕ Add Scenario"):
         n = len(st.session_state.scenarios)
-        st.session_state.scenarios.append({"name": f"Scenario {n + 1}", "invest_pct": 50, "color": "#ffffff"})
+        st.session_state.scenarios.append({"sid": st.session_state.next_sid,
+                                           "name": f"Scenario {n + 1}", "invest_pct": 50, "color": "#ffffff"})
+        st.session_state.next_sid += 1
         new_colors = generate_colors(n + 1)
         for j, sc in enumerate(st.session_state.scenarios):
             sc["color"] = new_colors[j]
         st.rerun()
     if st.button("🔄 Reset to Defaults"):
         st.session_state.scenarios = _default_scenarios()
+        st.session_state.next_sid = len(st.session_state.scenarios)
         st.rerun()
 
 # ─── Header ───────────────────────────────────────────────────────────────────
@@ -194,20 +206,21 @@ for row_start in range(0, N, COLS):
     row_scs = st.session_state.scenarios[row_start : row_start + COLS]
     cols = st.columns(len(row_scs))
     for col_idx, (sc, col) in enumerate(zip(row_scs, cols)):
-        i = row_start + col_idx
+        i   = row_start + col_idx
+        sid = sc["sid"]
         with col:
             st.markdown(f'<div style="height:3px;background:{sc["color"]};border-radius:3px;margin-bottom:6px"></div>', unsafe_allow_html=True)
-            name       = st.text_input("Name", value=sc["name"], key=f"name_{i}", label_visibility="collapsed")
+            name       = st.text_input("Name", value=sc["name"], key=f"name_{sid}", label_visibility="collapsed")
             invest_pct = st.number_input("Invest %", value=int(sc["invest_pct"]),
-                                          min_value=0, max_value=100, step=1, key=f"pct_{i}")
+                                          min_value=0, max_value=100, step=1, key=f"pct_{sid}")
             st.caption(f"🏠 {100-invest_pct}% mort · 📈 {invest_pct}% inv")
-            if N > 1 and st.button("🗑", key=f"del_{i}", help="Remove"):
-                st.session_state.scenarios.pop(i)
+            if N > 1 and st.button("🗑", key=f"del_{sid}", help="Remove"):
+                st.session_state.scenarios = [s for s in st.session_state.scenarios if s["sid"] != sid]
                 new_colors = generate_colors(len(st.session_state.scenarios))
                 for j, s in enumerate(st.session_state.scenarios):
                     s["color"] = new_colors[j]
                 st.rerun()
-            scenarios_cfg.append({"name": name, "invest_pct": invest_pct, "color": sc["color"]})
+            scenarios_cfg.append({"sid": sid, "name": name, "invest_pct": invest_pct, "color": sc["color"]})
 
 # Sync back + refresh colors
 current_colors = generate_colors(len(scenarios_cfg))
