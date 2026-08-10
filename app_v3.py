@@ -112,26 +112,16 @@ def run_scenario(savings, invest_pct, inv_rate_annual, april_bonus, goal_investm
         "total_invested": sum(r["invested"] for r in rows),
     }
 
-# ─── Session State ────────────────────────────────────────────────────────────
-def _default_scenarios():
-    pcts   = list(range(60, 80, 1))
-    colors = generate_colors(len(pcts))
-    # No savings stored in scenario — driven entirely by global savings_amount
-    # sid is a stable per-scenario id so widget keys survive deletions.
-    return [
-        {"sid": i, "name": f"{p}% Invest / {100-p}% Mortgage", "invest_pct": p, "color": c}
-        for i, (p, c) in enumerate(zip(pcts, colors))
-    ]
+# ─── Scenarios ────────────────────────────────────────────────────────────────
+# Every whole-percent split from 1% to 99% invested, fixed — nothing to configure.
+# Savings, return, bonus and goal are the only inputs, all global in the sidebar.
+INVEST_PCTS = list(range(1, 100))
+SCENARIOS = [
+    {"name": f"{p}% Invest / {100-p}% Mortgage", "invest_pct": p, "color": c}
+    for p, c in zip(INVEST_PCTS, generate_colors(len(INVEST_PCTS)))
+]
 
-if "scenarios" not in st.session_state:
-    st.session_state.scenarios = _default_scenarios()
-if "next_sid" not in st.session_state:
-    st.session_state.next_sid = len(st.session_state.scenarios)
-# Sessions open across a redeploy may still hold pre-sid scenario dicts.
-for _i, _sc in enumerate(st.session_state.scenarios):
-    if "sid" not in _sc:
-        _sc["sid"] = _i
-        st.session_state.next_sid = max(st.session_state.next_sid, _i + 1)
+# ─── Session State ────────────────────────────────────────────────────────────
 if "inv_rate" not in st.session_state:
     st.session_state.inv_rate = 7.0
 if "april_bonus" not in st.session_state:
@@ -175,58 +165,15 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown('<div class="section-title">Manage Scenarios</div>', unsafe_allow_html=True)
-    if st.button("➕ Add Scenario"):
-        n = len(st.session_state.scenarios)
-        st.session_state.scenarios.append({"sid": st.session_state.next_sid,
-                                           "name": f"Scenario {n + 1}", "invest_pct": 50, "color": "#ffffff"})
-        st.session_state.next_sid += 1
-        new_colors = generate_colors(n + 1)
-        for j, sc in enumerate(st.session_state.scenarios):
-            sc["color"] = new_colors[j]
-        st.rerun()
-    if st.button("🔄 Reset to Defaults"):
-        st.session_state.scenarios = _default_scenarios()
-        st.session_state.next_sid = len(st.session_state.scenarios)
-        st.rerun()
-
 # ─── Header ───────────────────────────────────────────────────────────────────
 st.markdown("# 🎯 Coast FIRE Scenario Planner")
 st.markdown(f"*10-year projection — find the optimal invest/mortgage split to reach ${goal_investment:,.0f} portfolio + paid-off home · savings: ${savings_amount:,.0f}/mo*")
 
-# ─── Scenario Config Grid ─────────────────────────────────────────────────────
-st.markdown("### Configure Scenarios")
-st.markdown(f'<div class="info-box">All scenarios use <b>${savings_amount:,.0f}/mo</b> savings (set in sidebar). Each scenario only varies the invest %. Changes apply instantly.</div>', unsafe_allow_html=True)
-
-scenarios_cfg = []
-N    = len(st.session_state.scenarios)
-COLS = 4
-
-for row_start in range(0, N, COLS):
-    row_scs = st.session_state.scenarios[row_start : row_start + COLS]
-    cols = st.columns(len(row_scs))
-    for col_idx, (sc, col) in enumerate(zip(row_scs, cols)):
-        i   = row_start + col_idx
-        sid = sc["sid"]
-        with col:
-            st.markdown(f'<div style="height:3px;background:{sc["color"]};border-radius:3px;margin-bottom:6px"></div>', unsafe_allow_html=True)
-            name       = st.text_input("Name", value=sc["name"], key=f"name_{sid}", label_visibility="collapsed")
-            invest_pct = st.number_input("Invest %", value=int(sc["invest_pct"]),
-                                          min_value=0, max_value=100, step=1, key=f"pct_{sid}")
-            st.caption(f"🏠 {100-invest_pct}% mort · 📈 {invest_pct}% inv")
-            if N > 1 and st.button("🗑", key=f"del_{sid}", help="Remove"):
-                st.session_state.scenarios = [s for s in st.session_state.scenarios if s["sid"] != sid]
-                new_colors = generate_colors(len(st.session_state.scenarios))
-                for j, s in enumerate(st.session_state.scenarios):
-                    s["color"] = new_colors[j]
-                st.rerun()
-            scenarios_cfg.append({"sid": sid, "name": name, "invest_pct": invest_pct, "color": sc["color"]})
-
-# Sync back + refresh colors
-current_colors = generate_colors(len(scenarios_cfg))
-for i, (cfg, col) in enumerate(zip(scenarios_cfg, current_colors)):
-    cfg["color"] = col
-    st.session_state.scenarios[i].update(cfg)
+scenarios_cfg = SCENARIOS
+N = len(scenarios_cfg)
+st.markdown(f'<div class="info-box">Every split from <b>1%</b> to <b>99%</b> invested is projected, all on '
+            f'<b>${savings_amount:,.0f}/mo</b> savings. Adjust the inputs in the sidebar — results update instantly.</div>',
+            unsafe_allow_html=True)
 
 # ─── Run Simulations ──────────────────────────────────────────────────────────
 # savings_amount from sidebar flows into every scenario here — no per-scenario copy needed
@@ -238,6 +185,9 @@ for sc in scenarios_cfg:
 
 goal_reached = [r for r in sim_results if r["goal_reached"]]
 winner = min(goal_reached, key=lambda r: r["goal_idx"]) if goal_reached else None
+# Across 99 splits the fastest date is usually a plateau rather than a single
+# winner, so track everyone who ties instead of crowning the lowest percentage.
+tied = [r for r in goal_reached if r["goal_idx"] == winner["goal_idx"]] if winner else []
 
 # ─── Winner Banner ────────────────────────────────────────────────────────────
 st.divider()
@@ -248,9 +198,14 @@ if winner:
     <div style="background:linear-gradient(90deg,#1a3a2a,#122a1e);border-left:4px solid #51cf66;
     border-radius:8px;padding:12px 20px;margin-bottom:16px;font-family:'Space Mono',monospace;">
     🏆 <b style="color:#51cf66">FASTEST PATH:</b> &nbsp;
-    <span style="color:#e8eaf0">{winner['name']}</span> &nbsp;—&nbsp;
+    <span style="color:#e8eaf0">{
+        f"{tied[0]['invest_pct']}%–{tied[-1]['invest_pct']}% invest" if len(tied) > 1 else winner['name']
+    }</span> &nbsp;—&nbsp;
     <span style="color:#51cf66">Goal reached {winner['goal_reached']}</span> &nbsp;|&nbsp;
-    📈 {winner['invest_pct']}% invest &nbsp;|&nbsp; 💰 ${winner['savings']:,.0f}/mo
+    {
+        f"📈 {len(tied)} splits tie — anything in that band is equally fast"
+        if len(tied) > 1 else f"📈 {winner['invest_pct']}% invest"
+    } &nbsp;|&nbsp; 💰 ${winner['savings']:,.0f}/mo
     </div>
     """, unsafe_allow_html=True)
 else:
@@ -264,7 +219,7 @@ else:
 # ─── Results Table ────────────────────────────────────────────────────────────
 comp_rows = []
 for r in sim_results:
-    is_w = winner and r["name"] == winner["name"]
+    is_w = winner and r["goal_reached"] and r["goal_idx"] == winner["goal_idx"]
     comp_rows.append({
         "🏷 Scenario":        r["name"],
         "📈 Invest %":        f"{r['invest_pct']}%",
@@ -284,14 +239,18 @@ st.dataframe(pd.DataFrame(comp_rows), use_container_width=True,
 st.divider()
 st.markdown("### Charts")
 
+# 99 traces make a legend useless, so it is off — the hover label names the split.
 CHART_LAYOUT = dict(
     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(13,20,34,0.8)",
     font=dict(color="#7c90b0", family="Syne"),
-    legend=dict(bgcolor="rgba(19,25,41,0.9)", bordercolor="#2a3550", borderwidth=1, font=dict(size=10)),
+    showlegend=False,
     margin=dict(t=20, b=20, l=10, r=10),
     xaxis=dict(gridcolor="#1e2d45", linecolor="#2a3550"),
     yaxis=dict(gridcolor="#1e2d45", linecolor="#2a3550", tickprefix="$"),
 )
+LINE_W = 1.2
+
+st.caption("Colour runs from the lowest invest % to the highest. Hover any line to identify it.")
 
 tab1, tab2, tab3 = st.tabs(["📈 Portfolio Growth", "🏠 Mortgage Balance", "📊 Monthly Invested"])
 
@@ -303,7 +262,7 @@ with tab1:
     for r in sim_results:
         fig.add_trace(go.Scatter(
             x=[row["label"] for row in r["rows"]], y=[row["inv_bal"] for row in r["rows"]],
-            name=r["name"], line=dict(color=r["color"], width=2),
+            name=r["name"], line=dict(color=r["color"], width=LINE_W),
             hovertemplate="%{x}<br>$%{y:,.0f}<extra>" + r["name"] + "</extra>"
         ))
     fig.update_layout(height=500, **CHART_LAYOUT)
@@ -314,7 +273,7 @@ with tab2:
     for r in sim_results:
         fig2.add_trace(go.Scatter(
             x=[row["label"] for row in r["rows"]], y=[row["mort_bal"] for row in r["rows"]],
-            name=r["name"], line=dict(color=r["color"], width=2),
+            name=r["name"], line=dict(color=r["color"], width=LINE_W),
             hovertemplate="%{x}<br>$%{y:,.0f}<extra>" + r["name"] + "</extra>"
         ))
     fig2.update_layout(height=500, **CHART_LAYOUT)
@@ -325,7 +284,7 @@ with tab3:
     for r in sim_results:
         fig3.add_trace(go.Scatter(
             x=[row["label"] for row in r["rows"]], y=[row["invested"] for row in r["rows"]],
-            name=r["name"], line=dict(color=r["color"], width=2),
+            name=r["name"], line=dict(color=r["color"], width=LINE_W),
             hovertemplate="%{x}<br>$%{y:,.0f}<extra>" + r["name"] + "</extra>"
         ))
     fig3.update_layout(height=500, **CHART_LAYOUT)
@@ -341,10 +300,12 @@ sel = st.selectbox("Scenario", range(len(sim_results)), index=default_idx,
                    format_func=lambda i: sim_results[i]["name"], key="detail_scenario")
 detail = sim_results[sel]
 # index= only applies on first render, so the dropdown keeps whatever was picked
-# even after the winner moves. Call the current winner out separately.
-if winner and detail["name"] != winner["name"]:
-    st.caption(f"🏆 Fastest scenario at these settings is **{winner['name']}** "
-               f"— goal {winner['goal_reached']}. Showing {detail['name']}.")
+# even after the winner moves. Call the fastest band out separately.
+if winner and detail["goal_idx"] != winner["goal_idx"]:
+    band = (f"{tied[0]['invest_pct']}%–{tied[-1]['invest_pct']}% invest ({len(tied)} splits tie)"
+            if len(tied) > 1 else f"**{winner['name']}**")
+    st.caption(f"🏆 Fastest at these settings is {band} — goal {winner['goal_reached']}. "
+               f"Showing {detail['name']}.")
 
 # Group the projection into calendar years — 2026 starts in May, 2036 ends in April.
 years = {}
