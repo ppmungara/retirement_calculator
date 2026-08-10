@@ -63,8 +63,9 @@ def run_scenario(savings, invest_pct, inv_rate_annual, april_bonus, goal_investm
         d   = month_date(i)
         lbl = month_label(i)
         bonus       = april_bonus if d.month == 4 else 0.0
-        car_freed   = car_monthly_pmt if car_bal == 0 else 0.0
-        total_avail = savings + bonus + car_freed
+        car_freed   = car_monthly_pmt  if car_bal  == 0 else 0.0
+        mort_freed  = mort_monthly_pmt if mort_bal == 0 else 0.0
+        total_avail = savings + bonus + car_freed + mort_freed
         mort_interest  = mort_bal * mort_rate_m
         mort_principal = max(0.0, min(mort_monthly_pmt - mort_interest, mort_bal))
         # Prepayment can only touch what the scheduled principal leaves behind.
