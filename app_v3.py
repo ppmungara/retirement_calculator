@@ -331,10 +331,56 @@ with tab3:
     fig3.update_layout(height=500, **CHART_LAYOUT)
     st.plotly_chart(fig3, use_container_width=True)
 
+# ─── Month-by-Month Detail ────────────────────────────────────────────────────
+st.divider()
+st.markdown("### 📅 Month-by-Month Detail")
+
+default_idx = next((i for i, r in enumerate(sim_results)
+                    if winner and r["name"] == winner["name"]), 0)
+sel = st.selectbox("Scenario", range(len(sim_results)), index=default_idx,
+                   format_func=lambda i: sim_results[i]["name"], key="detail_scenario")
+detail = sim_results[sel]
+# index= only applies on first render, so the dropdown keeps whatever was picked
+# even after the winner moves. Call the current winner out separately.
+if winner and detail["name"] != winner["name"]:
+    st.caption(f"🏆 Fastest scenario at these settings is **{winner['name']}** "
+               f"— goal {winner['goal_reached']}. Showing {detail['name']}.")
+
+# Group the projection into calendar years — 2026 starts in May, 2036 ends in April.
+years = {}
+for row in detail["rows"]:
+    years.setdefault(month_date(row["idx"]).year, []).append(row)
+
+goal_row = detail["goal_idx"] if detail["goal_reached"] else None
+for ytab, (yr, yrows) in zip(st.tabs([str(y) for y in years]), years.items()):
+    with ytab:
+        first, last = yrows[0], yrows[-1]
+        c1, c2, c3 = st.columns(3)
+        c1.metric("🏠 Mortgage at year end", f"${last['mort_bal']:,.0f}",
+                  f"{last['mort_bal'] - first['mort_bal']:+,.0f}")
+        c2.metric("📈 Portfolio at year end", f"${last['inv_bal']:,.0f}",
+                  f"{last['inv_bal'] - first['inv_bal']:+,.0f}")
+        c3.metric("💵 Invested this year", f"${sum(r['invested'] for r in yrows):,.0f}",
+                  f"{len(yrows)} mo")
+        st.dataframe(pd.DataFrame([{
+            "Month":        r["label"] + ("  🎯" if r["idx"] == goal_row else ""),
+            "🏠 Mortgage":  f"${r['mort_bal']:,.0f}",
+            "🚗 Car":       f"${r['car_bal']:,.0f}",
+            "📈 Portfolio": f"${r['inv_bal']:,.0f}",
+            "💵 Invested":  f"${r['invested']:,.0f}",
+            "🏠 Extra":     f"${r['mort_extra']:,.0f}",
+            "💸 Interest":  f"${r['mort_interest'] + r['car_interest']:,.0f}",
+        } for r in yrows]), use_container_width=True, hide_index=True,
+            height=42 * len(yrows) + 45)
+        if goal_row is not None and any(r["idx"] == goal_row for r in yrows):
+            st.caption(f"🎯 Goal reached {detail['goal_reached']} — "
+                       f"${goal_investment:,.0f} invested with the mortgage cleared.")
+
 st.markdown(f"""
 <div class="info-box" style="margin-top:16px;text-align:center">
 ⚠️ All scenarios run exactly 10 years (120 months) from May 2026 · $72k starting portfolio ·
-$441/wk mortgage · $242/biweek car · freed-up car payment reinvested after payoff · annual April bonus included.
+$441/wk mortgage · $242/biweek car · freed-up car <b>and mortgage</b> payments redirected after payoff · annual April bonus included.<br>
+Savings are assumed to be <b>surplus on top of</b> the scheduled mortgage and car payments.
 Savings: ${savings_amount:,.0f}/mo · Goal: ${goal_investment:,.0f} invested + mortgage paid off. For planning purposes only.
 </div>
 """, unsafe_allow_html=True)
