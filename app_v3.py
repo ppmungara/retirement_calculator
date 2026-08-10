@@ -26,7 +26,12 @@ MORTGAGE_RATE_ANNUAL = 0.054
 CAR_RATE_ANNUAL      = 0.068
 MORTGAGE_WEEKLY_PMT  = 441.0
 CAR_BIWEEKLY_PMT     = 242.0
-START_MONTH          = date(2026, 5, 1)
+def _next_month_start(today=None):
+    """First of the month after `today` — the projection always starts next month."""
+    d = today or date.today()
+    return date(d.year + 1, 1, 1) if d.month == 12 else date(d.year, d.month + 1, 1)
+
+START_MONTH          = _next_month_start()
 MAX_MONTHS           = 120
 MONTHS_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
 
@@ -158,6 +163,7 @@ with st.sidebar:
     st.markdown('<div class="section-title">Starting Position</div>', unsafe_allow_html=True)
     st.markdown(f"""
     <div class="info-box">
+    📅 Projection starts <b>{month_label(0)}</b><br>runs to {month_label(MAX_MONTHS - 1)}<br><br>
     🏠 Mortgage: $275,000 @ 5.4%<br>$441/wk scheduled<br><br>
     🚗 Car Loan: $30,000 @ 6.8%<br>$242/biweek scheduled<br><br>
     📈 Current portfolio: $72,000<br><br>
@@ -307,7 +313,8 @@ if winner and detail["goal_idx"] != winner["goal_idx"]:
     st.caption(f"🏆 Fastest at these settings is {band} — goal {winner['goal_reached']}. "
                f"Showing {detail['name']}.")
 
-# Group the projection into calendar years — 2026 starts in May, 2036 ends in April.
+# Group the projection into calendar years — the first and last are part years,
+# since the run starts next month rather than in January.
 years = {}
 for row in detail["rows"]:
     years.setdefault(month_date(row["idx"]).year, []).append(row)
@@ -339,9 +346,10 @@ for ytab, (yr, yrows) in zip(st.tabs([str(y) for y in years]), years.items()):
 
 st.markdown(f"""
 <div class="info-box" style="margin-top:16px;text-align:center">
-⚠️ All scenarios run exactly 10 years (120 months) from May 2026 · $72k starting portfolio ·
+⚠️ All scenarios run exactly 10 years (120 months) from {month_label(0)} to {month_label(MAX_MONTHS - 1)} ·
 $441/wk mortgage · $242/biweek car · freed-up car <b>and mortgage</b> payments redirected after payoff · annual April bonus included.<br>
-Savings are assumed to be <b>surplus on top of</b> the scheduled mortgage and car payments.
+Savings are assumed to be <b>surplus on top of</b> the scheduled mortgage and car payments.<br>
+Opening balances below are fixed in the code and are <b>not</b> re-dated as the start month rolls forward.
 Savings: ${savings_amount:,.0f}/mo · Goal: ${goal_investment:,.0f} invested + mortgage paid off. For planning purposes only.
 </div>
 """, unsafe_allow_html=True)
