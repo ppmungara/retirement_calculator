@@ -109,9 +109,15 @@ def run_scenario(savings, invest_pct, inv_rate_annual, april_bonus, goal_investm
         rows.append({"idx": i, "label": lbl, "mort_bal": mort_bal, "car_bal": car_bal,
                      "inv_bal": inv_bal, "mort_interest": mort_interest, "car_interest": car_interest,
                      "mort_extra": mort_extra, "car_extra": car_extra, "invested": invested})
+        # Stop once the goal is met; scenarios that never meet it run the full
+        # MAX_MONTHS. Runs therefore end at different times, so every summary
+        # below is "at stop" and months_run states the horizon it was measured over.
+        if goal_idx is not None:
+            break
 
     return {
         "rows": rows,
+        "months_run":     len(rows),
         "car_paid":       car_paid_label  or "Not paid off",
         "mort_paid":      mort_paid_label or "Not paid off",
         "goal_reached":   goal_label,
@@ -236,13 +242,17 @@ for r in sim_results:
         "📈 Invest %":        f"{r['invest_pct']}%",
         "🏠 Mortgage %":      f"{100 - r['invest_pct']}%",
         "🎯 Goal Reached":    r["goal_reached"] or "—",
+        "⏱ Months Run":      f"{r['months_run']}" + ("" if r["goal_reached"] else " (max)"),
         "🏠 Mort Paid":       r["mort_paid"],
         "🚗 Car Paid":        r["car_paid"],
-        "📊 Final Portfolio": f"${r['final_inv']:,.0f}",
-        "💸 Total Interest":  f"${r['total_interest']:,.0f}",
+        "📊 Portfolio at End": f"${r['final_inv']:,.0f}",
+        "💸 Interest Paid":   f"${r['total_interest']:,.0f}",
         "🏆":                 "✅" if is_w else "",
     })
 
+st.caption("Each run stops the month its goal is met, so portfolio and interest are measured "
+           "at that point — not over a common 10 years. **Months Run** is the horizon behind "
+           "each row; rows marked *(max)* never met the goal and ran the full 10 years.")
 st.dataframe(pd.DataFrame(comp_rows), use_container_width=True,
              hide_index=True, height=min(42 * N + 60, 620))
 
@@ -256,7 +266,10 @@ CHART_LAYOUT = dict(
     font=dict(color="#7c90b0", family="Syne"),
     showlegend=False,
     margin=dict(t=20, b=20, l=10, r=10),
-    xaxis=dict(gridcolor="#1e2d45", linecolor="#2a3550"),
+    # Runs stop at different months, so pin the category order instead of letting
+    # it be inferred from whichever trace happens to be drawn first.
+    xaxis=dict(gridcolor="#1e2d45", linecolor="#2a3550", categoryorder="array",
+               categoryarray=[month_label(i) for i in range(MAX_MONTHS)]),
     yaxis=dict(gridcolor="#1e2d45", linecolor="#2a3550", tickprefix="$"),
 )
 LINE_W = 1.2
@@ -351,7 +364,7 @@ for ytab, (yr, yrows) in zip(st.tabs([str(y) for y in years]), years.items()):
 
 st.markdown(f"""
 <div class="info-box" style="margin-top:16px;text-align:center">
-⚠️ All scenarios run exactly 10 years (120 months) from {month_label(0)} to {month_label(MAX_MONTHS - 1)} ·
+⚠️ Each scenario runs from {month_label(0)} until it reaches the goal, capped at 10 years ({MAX_MONTHS} months, {month_label(MAX_MONTHS - 1)}) ·
 $441/wk mortgage · $242/biweek car · freed-up car <b>and mortgage</b> payments redirected after payoff · annual April bonus included.<br>
 Savings are assumed to be <b>surplus on top of</b> the scheduled mortgage and car payments.<br>
 Opening balances below are fixed in the code and are <b>not</b> re-dated as the start month rolls forward.
