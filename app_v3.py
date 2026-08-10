@@ -80,10 +80,10 @@ def run_scenario(savings, invest_pct, inv_rate_annual, april_bonus, goal_investm
             leftover  = total_avail - car_extra
             if leftover > 0:
                 mort_extra = min(leftover * (1 - invest_pct / 100), mort_room)
-                invested   = leftover * (invest_pct / 100)
+                invested   = leftover - mort_extra
         else:
             mort_extra = min(total_avail * (1 - invest_pct / 100), mort_room)
-            invested   = total_avail * (invest_pct / 100)
+            invested   = total_avail - mort_extra
         mort_bal = max(0.0, mort_bal - mort_principal - mort_extra)
         if car_bal > 0:
             car_bal = max(0.0, car_bal - car_principal - car_extra)
