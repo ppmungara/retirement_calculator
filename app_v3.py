@@ -26,6 +26,11 @@ MORTGAGE_RATE_ANNUAL = 0.054
 CAR_RATE_ANNUAL      = 0.068
 MORTGAGE_WEEKLY_PMT  = 441.0
 CAR_BIWEEKLY_PMT     = 242.0
+# Opening balances. Single source of truth — the sidebar reads these too, so the
+# displayed starting position cannot drift away from what is actually simulated.
+MORTGAGE_START_BAL   = 270_000.0
+CAR_START_BAL        =  16_000.0
+PORTFOLIO_START_BAL  =  72_000.0
 def _next_month_start(today=None):
     """First of the month after `today` — the projection always starts next month."""
     d = today or date.today()
@@ -53,9 +58,9 @@ def month_label(idx):
     return f"{MONTHS_ABBR[d.month-1]} {d.year}"
 
 def run_scenario(savings, invest_pct, inv_rate_annual, april_bonus, goal_investment):
-    mort_bal = 275_000.0
-    car_bal  =  30_000.0
-    inv_bal  =  72_000.0
+    mort_bal = MORTGAGE_START_BAL
+    car_bal  = CAR_START_BAL
+    inv_bal  = PORTFOLIO_START_BAL
     mort_rate_m = MORTGAGE_RATE_ANNUAL / 12
     car_rate_m  = CAR_RATE_ANNUAL / 12
     inv_rate_m  = inv_rate_annual / 100 / 12
@@ -164,9 +169,9 @@ with st.sidebar:
     st.markdown(f"""
     <div class="info-box">
     📅 Projection starts <b>{month_label(0)}</b><br>runs to {month_label(MAX_MONTHS - 1)}<br><br>
-    🏠 Mortgage: $275,000 @ 5.4%<br>$441/wk scheduled<br><br>
-    🚗 Car Loan: $30,000 @ 6.8%<br>$242/biweek scheduled<br><br>
-    📈 Current portfolio: $72,000<br><br>
+    🏠 Mortgage: ${MORTGAGE_START_BAL:,.0f} @ {MORTGAGE_RATE_ANNUAL:.1%}<br>${MORTGAGE_WEEKLY_PMT:,.0f}/wk scheduled<br><br>
+    🚗 Car Loan: ${CAR_START_BAL:,.0f} @ {CAR_RATE_ANNUAL:.1%}<br>${CAR_BIWEEKLY_PMT:,.0f}/biweek scheduled<br><br>
+    📈 Current portfolio: ${PORTFOLIO_START_BAL:,.0f}<br><br>
     🎯 Goal: ${goal_investment:,.0f} invested + house paid off
     </div>
     """, unsafe_allow_html=True)
