@@ -23,13 +23,10 @@ div[data-testid="metric-container"] { background: #131929; border-radius: 10px; 
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 MORTGAGE_RATE_ANNUAL = 0.054
-CAR_RATE_ANNUAL      = 0.068
 MORTGAGE_WEEKLY_PMT  = 441.0
-CAR_BIWEEKLY_PMT     = 242.0
 # Opening balances. Single source of truth — the sidebar reads these too, so the
 # displayed starting position cannot drift away from what is actually simulated.
 MORTGAGE_START_BAL   = 270_000.0
-CAR_START_BAL        =  16_000.0
 PORTFOLIO_START_BAL  =  72_000.0
 def _next_month_start(today=None):
     """First of the month after `today` — the projection always starts next month."""
@@ -59,56 +56,35 @@ def month_label(idx):
 
 def run_scenario(savings, invest_pct, inv_rate_annual, april_bonus, goal_investment):
     mort_bal = MORTGAGE_START_BAL
-    car_bal  = CAR_START_BAL
     inv_bal  = PORTFOLIO_START_BAL
     mort_rate_m = MORTGAGE_RATE_ANNUAL / 12
-    car_rate_m  = CAR_RATE_ANNUAL / 12
     inv_rate_m  = inv_rate_annual / 100 / 12
-    car_monthly_pmt  = CAR_BIWEEKLY_PMT  * (26 / 12)
     mort_monthly_pmt = MORTGAGE_WEEKLY_PMT * (52 / 12)
-    car_paid_label = mort_paid_label = goal_label = None
+    mort_paid_label = goal_label = None
     goal_idx = None
     rows = []
     for i in range(MAX_MONTHS):
         d   = month_date(i)
         lbl = month_label(i)
         bonus       = april_bonus if d.month == 4 else 0.0
-        car_freed   = car_monthly_pmt  if car_bal  == 0 else 0.0
         mort_freed  = mort_monthly_pmt if mort_bal == 0 else 0.0
-        total_avail = savings + bonus + car_freed + mort_freed
+        total_avail = savings + bonus + mort_freed
         mort_interest  = mort_bal * mort_rate_m
         mort_principal = max(0.0, min(mort_monthly_pmt - mort_interest, mort_bal))
         # Prepayment can only touch what the scheduled principal leaves behind.
         mort_room      = max(0.0, mort_bal - mort_principal)
-        if car_bal > 0:
-            car_interest  = car_bal * car_rate_m
-            car_principal = max(0.0, min(car_monthly_pmt - car_interest, car_bal))
-        else:
-            car_interest = car_principal = 0.0
-        car_extra = mort_extra = invested = 0.0
-        if car_bal > 0:
-            car_extra = min(total_avail, max(0.0, car_bal - car_principal))
-            leftover  = total_avail - car_extra
-            if leftover > 0:
-                mort_extra = min(leftover * (1 - invest_pct / 100), mort_room)
-                invested   = leftover - mort_extra
-        else:
-            mort_extra = min(total_avail * (1 - invest_pct / 100), mort_room)
-            invested   = total_avail - mort_extra
+        mort_extra = min(total_avail * (1 - invest_pct / 100), mort_room)
+        invested   = total_avail - mort_extra
         mort_bal = max(0.0, mort_bal - mort_principal - mort_extra)
-        if car_bal > 0:
-            car_bal = max(0.0, car_bal - car_principal - car_extra)
-            if car_bal == 0 and car_paid_label is None:
-                car_paid_label = lbl
         if mort_bal == 0 and mort_paid_label is None:
             mort_paid_label = lbl
         inv_bal = inv_bal * (1 + inv_rate_m) + invested
         if inv_bal >= goal_investment and mort_bal == 0 and goal_label is None:
             goal_label = lbl
             goal_idx   = i
-        rows.append({"idx": i, "label": lbl, "mort_bal": mort_bal, "car_bal": car_bal,
-                     "inv_bal": inv_bal, "mort_interest": mort_interest, "car_interest": car_interest,
-                     "mort_extra": mort_extra, "car_extra": car_extra, "invested": invested})
+        rows.append({"idx": i, "label": lbl, "mort_bal": mort_bal,
+                     "inv_bal": inv_bal, "mort_interest": mort_interest,
+                     "mort_extra": mort_extra, "invested": invested})
         # Stop once the goal is met; scenarios that never meet it run the full
         # MAX_MONTHS. Runs therefore end at different times, so every summary
         # below is "at stop" and months_run states the horizon it was measured over.
@@ -118,13 +94,12 @@ def run_scenario(savings, invest_pct, inv_rate_annual, april_bonus, goal_investm
     return {
         "rows": rows,
         "months_run":     len(rows),
-        "car_paid":       car_paid_label  or "Not paid off",
         "mort_paid":      mort_paid_label or "Not paid off",
         "goal_reached":   goal_label,
         "goal_idx":       goal_idx if goal_idx is not None else 9999,
         "final_inv":      rows[-1]["inv_bal"],
         "final_mort":     rows[-1]["mort_bal"],
-        "total_interest": sum(r["mort_interest"] + r["car_interest"] for r in rows),
+        "total_interest": sum(r["mort_interest"] for r in rows),
         "total_invested": sum(r["invested"] for r in rows),
     }
 
@@ -176,7 +151,6 @@ with st.sidebar:
     <div class="info-box">
     📅 Projection starts <b>{month_label(0)}</b><br>runs to {month_label(MAX_MONTHS - 1)}<br><br>
     🏠 Mortgage: ${MORTGAGE_START_BAL:,.0f} @ {MORTGAGE_RATE_ANNUAL:.1%}<br>${MORTGAGE_WEEKLY_PMT:,.0f}/wk scheduled<br><br>
-    🚗 Car Loan: ${CAR_START_BAL:,.0f} @ {CAR_RATE_ANNUAL:.1%}<br>${CAR_BIWEEKLY_PMT:,.0f}/biweek scheduled<br><br>
     📈 Current portfolio: ${PORTFOLIO_START_BAL:,.0f}<br><br>
     🎯 Goal: ${goal_investment:,.0f} invested + house paid off
     </div>
@@ -244,7 +218,6 @@ for r in sim_results:
         "🎯 Goal Reached":    r["goal_reached"] or "—",
         "⏱ Months Run":      f"{r['months_run']}" + ("" if r["goal_reached"] else " (max)"),
         "🏠 Mort Paid":       r["mort_paid"],
-        "🚗 Car Paid":        r["car_paid"],
         "📊 Portfolio at End": f"${r['final_inv']:,.0f}",
         "💸 Interest Paid":   f"${r['total_interest']:,.0f}",
         "🏆":                 "✅" if is_w else "",
@@ -351,11 +324,10 @@ for ytab, (yr, yrows) in zip(st.tabs([str(y) for y in years]), years.items()):
         st.dataframe(pd.DataFrame([{
             "Month":        r["label"] + ("  🎯" if r["idx"] == goal_row else ""),
             "🏠 Mortgage":  f"${r['mort_bal']:,.0f}",
-            "🚗 Car":       f"${r['car_bal']:,.0f}",
             "📈 Portfolio": f"${r['inv_bal']:,.0f}",
             "💵 Invested":  f"${r['invested']:,.0f}",
             "🏠 Extra":     f"${r['mort_extra']:,.0f}",
-            "💸 Interest":  f"${r['mort_interest'] + r['car_interest']:,.0f}",
+            "💸 Interest":  f"${r['mort_interest']:,.0f}",
         } for r in yrows]), use_container_width=True, hide_index=True,
             height=42 * len(yrows) + 45)
         if goal_row is not None and any(r["idx"] == goal_row for r in yrows):
@@ -365,8 +337,8 @@ for ytab, (yr, yrows) in zip(st.tabs([str(y) for y in years]), years.items()):
 st.markdown(f"""
 <div class="info-box" style="margin-top:16px;text-align:center">
 ⚠️ Each scenario runs from {month_label(0)} until it reaches the goal, capped at 10 years ({MAX_MONTHS} months, {month_label(MAX_MONTHS - 1)}) ·
-$441/wk mortgage · $242/biweek car · freed-up car <b>and mortgage</b> payments redirected after payoff · annual April bonus included.<br>
-Savings are assumed to be <b>surplus on top of</b> the scheduled mortgage and car payments.<br>
+$441/wk mortgage · freed-up mortgage payment redirected after payoff · annual April bonus included.<br>
+Savings are assumed to be <b>surplus on top of</b> the scheduled mortgage payments.<br>
 Opening balances below are fixed in the code and are <b>not</b> re-dated as the start month rolls forward.
 Savings: ${savings_amount:,.0f}/mo · Goal: ${goal_investment:,.0f} invested + mortgage paid off. For planning purposes only.
 </div>
