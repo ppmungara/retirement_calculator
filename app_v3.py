@@ -12,6 +12,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from dataclasses import dataclass, field
 from datetime import date
+import pathlib
 import colorsys
 
 st.set_page_config(page_title="Coast FIRE Planner", page_icon="🎯", layout="wide", initial_sidebar_state="expanded")
@@ -554,6 +555,18 @@ st.markdown("# 🎯 Coast FIRE Scenario Planner")
 st.markdown(f"*{horizon_years}-year projection — find the optimal invest/prepay split to reach "
             f"{money(goal)} invested{' + a paid-off home' if require_mort_paid else ''} · "
             f"savings: {money(savings)}/mo · RRSP + TFSA room and the Alberta tax refund modelled*")
+
+# ─── Read me ──────────────────────────────────────────────────────────────────
+# Rendered straight from README.md rather than duplicated here, so the reference
+# in the app and the one in the repo cannot drift apart.
+_readme = pathlib.Path(__file__).parent / "README.md"
+if _readme.is_file():
+    with st.expander("📖 Read me — what every setting does and how a month is simulated"):
+        text = _readme.read_text(encoding="utf-8")
+        # Drop the file's own H1; the page already carries the title above.
+        if text.lstrip().startswith("# "):
+            text = text.split("\n", 1)[1] if "\n" in text else ""
+        st.markdown(text)
 
 # ─── Tax tables ───────────────────────────────────────────────────────────────
 # Rendered before the simulation so an edit here feeds straight into the run.
