@@ -10,10 +10,14 @@ into the plan. Every input below is configurable from the sidebar.
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+import streamlit.components.v1 as components
 from dataclasses import dataclass, field
 from datetime import date
 import pathlib
 import colorsys
+import json
+import base64
+import zlib
 
 st.set_page_config(page_title="Coast FIRE Planner", page_icon="🎯", layout="wide", initial_sidebar_state="expanded")
 
@@ -387,91 +391,341 @@ def money(x):
     return f"${x:,.0f}"
 
 
+# ─── Saved settings ───────────────────────────────────────────────────────────
+# Every sidebar widget's default lives in one table, so the same definition drives
+# the initial render, what gets stored, and the type a loaded value has to conform
+# to.
+
+DEFAULTS = {
+    "inc_you": 130_000.0, "inc_sp": 67_000.0, "salary_growth": 0.0,
+    "savings": 5_000.0, "expenses": 7_000.0, "savings_growth": 0.0,
+    "bonus": 0.0, "bonus_month": 4,
+    "rrsp_bal_you": 64_000.0, "tfsa_bal_you": 16_000.0,
+    "rrsp_bal_sp": 0.0, "tfsa_bal_sp": 0.0, "nonreg_bal": 0.0,
+    "rrsp_room_you": 50_000.0, "rrsp_room_sp": 20_000.0,
+    "tfsa_room_you": 63_000.0, "tfsa_room_sp": 0.0,
+    "tfsa_annual": 7_000.0, "rrsp_accrual_pct": 18.0,
+    "rrsp_annual_max": 32_490.0, "limit_indexation": 0.0,
+    "ytd_you": 0.0, "ytd_sp": 0.0,
+    "employee_pct": 7.0, "employer_pct": 7.0,
+    "plan_kind": "Group RRSP", "payroll_from_savings": False,
+    "inv_return": 7.0, "nonreg_drag": 20.0,
+    "mort_bal": 270_000.0, "mort_rate": 5.4, "mort_weekly": 441.0,
+    "prepay_enforce": True, "prepay_pct": 15.0, "mort_orig": 270_000.0,
+    "spill_to_invest": True, "redirect_freed": True,
+    "waterfall": ["RRSP – You", "TFSA – You", "TFSA – Spouse", "RRSP – Spouse"],
+    "refund_month": 4, "refund_rule": "Follow the split",
+    "goal": 600_000.0, "goal_basis": "Gross balances",
+    "rrsp_withdraw_rate": 25.0, "require_mort_paid": True,
+    "horizon_years": 10, "lo": 1, "hi": 99, "step": 1,
+    "fed_bpa": FED_BPA_DEFAULT, "ab_bpa": AB_BPA_DEFAULT,
+    "fed_brackets": [[None if l == float("inf") else l, r] for l, r in FED_BRACKETS_DEFAULT],
+    "ab_brackets": [[None if l == float("inf") else l, r] for l, r in AB_BRACKETS_DEFAULT],
+}
+
+# Keys whose value has to be one of a fixed set — a hand-edited file naming
+# something else is rejected rather than crashing the widget that reads it.
+CHOICES = {
+    "plan_kind": ["Group RRSP", "DC pension"],
+    "refund_rule": ["Follow the split", "All to investments", "All to mortgage", "Spend it"],
+    "goal_basis": ["Gross balances", "After-tax (RRSP discounted)"],
+    "bonus_month": list(range(1, 13)),
+    "refund_month": list(range(1, 13)),
+}
+BRACKET_KEYS = ("fed_brackets", "ab_brackets")
+
+
+def coerce(key, val):
+    """Conform a loaded value to the shape of its default, or None if unusable."""
+    default = DEFAULTS[key]
+    try:
+        if key in BRACKET_KEYS:
+            rows = [[None if lim is None else float(lim), float(rate)] for lim, rate in val]
+            return rows or None
+        if key == "waterfall":
+            return [b for b in val if b in BUCKETS]   # an empty waterfall is legitimate
+        if isinstance(default, bool):                 # before int: bools are ints
+            out = bool(val)
+        elif isinstance(default, int):
+            out = int(val)
+        elif isinstance(default, float):
+            out = float(val)
+        else:
+            out = str(val)
+    except (TypeError, ValueError):
+        return None
+    return out if key not in CHOICES or out in CHOICES[key] else None
+
+
+def parse_config(raw):
+    """Validate decoded JSON into settings. Returns (settings, note)."""
+    if not isinstance(raw, dict):
+        return {}, "That is not a settings file."
+    cfg, rejected = {}, []
+    for key, val in raw.items():
+        if key not in DEFAULTS:
+            continue            # a key from an older version: ignore it quietly
+        clean = coerce(key, val)
+        if clean is None:
+            rejected.append(key)
+        else:
+            cfg[key] = clean
+    note = f"Ignored unusable values for: {', '.join(sorted(rejected))}." if rejected else None
+    return cfg, note
+
+
+def encode_settings(cfg):
+    """Pack settings into a short code that survives being emailed or messaged.
+
+    Only the settings that differ from the built-in defaults are carried, which
+    keeps a typical code short; loading one overwrites every widget, so the keys
+    left out land on their defaults rather than on whatever the other device had.
+    Compressed before encoding, and urlsafe base64 so that nothing in it gets
+    mangled by a chat client or a URL bar.
+    """
+    changed = {k: v for k, v in cfg.items() if k not in DEFAULTS or v != DEFAULTS[k]}
+    raw = json.dumps(changed, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return base64.urlsafe_b64encode(zlib.compress(raw, 9)).decode("ascii")
+
+
+def decode_settings(text):
+    """Read back a share code, or plain settings JSON. Returns (settings, error)."""
+    text = (text or "").strip()
+    if not text:
+        return None, "Nothing pasted."
+    if text.startswith("{"):
+        try:
+            return json.loads(text), None
+        except ValueError as err:
+            return None, f"That looks like settings JSON but will not parse ({err})."
+    # Mail and chat clients wrap long codes, so put the line back together and
+    # restore any padding that got trimmed along the way.
+    packed = "".join(text.split())
+    try:
+        blob = base64.urlsafe_b64decode(packed + "=" * (-len(packed) % 4))
+        return json.loads(zlib.decompress(blob).decode("utf-8")), None
+    except (ValueError, zlib.error, UnicodeDecodeError):
+        return None, "That is not a settings code. Copy the whole code and try again."
+
+
+def gather_config(fed_brackets, ab_brackets):
+    """Snapshot every widget's current value, plus the parsed bracket tables."""
+    cfg = {k: st.session_state[k] for k in DEFAULTS
+           if k not in BRACKET_KEYS and k in st.session_state}
+    for key, brackets in (("fed_brackets", fed_brackets), ("ab_brackets", ab_brackets)):
+        cfg[key] = [[None if lim == float("inf") else lim, rate] for lim, rate in brackets]
+    return cfg
+
+
+WIDGET_KEYS = [k for k in DEFAULTS if k not in BRACKET_KEYS]
+
+
+def apply_config(cfg, source):
+    """Adopt a different set of settings and restart the script.
+
+    The settings are only queued here. They are written into the widgets at the
+    top of the next run by `consume_pending`, because a widget's value cannot be
+    set through session_state once that widget has been created — and most of the
+    callers of this are buttons at the bottom of the script.
+    """
+    st.session_state._pending_cfg = (cfg, source)
+    st.rerun()
+
+
+def consume_pending():
+    """Push queued settings into the widgets. Must run before any widget exists.
+
+    Assigning through session_state is the only thing that actually moves a keyed
+    widget: a `value=` argument is ignored once the browser holds a value for that
+    widget, which is exactly the case when settings arrive from storage after the
+    first render.
+    """
+    if "_pending_cfg" not in st.session_state:
+        return
+    cfg, source = st.session_state.pop("_pending_cfg")
+    st.session_state._cfg = cfg
+    st.session_state._cfg_source = source
+    for key in WIDGET_KEYS:
+        st.session_state[key] = cfg.get(key, DEFAULTS[key])
+    # The bracket editors hold pending cell edits rather than values, so they are
+    # rebuilt under a fresh key instead — see `editor_key`.
+    st.session_state._cfg_gen = st.session_state.get("_cfg_gen", 0) + 1
+    for key in [k for k in st.session_state if k.startswith(("fed_df_", "ab_df_"))]:
+        st.session_state.pop(key, None)
+
+
+def seed_widgets():
+    """Give every widget its starting value before the sidebar is built."""
+    for key in WIDGET_KEYS:
+        st.session_state.setdefault(key, d(key))
+
+
+def editor_key(name):
+    """A key that changes whenever settings are loaded, so the grid is rebuilt."""
+    return f"{name}_{st.session_state.get('_cfg_gen', 0)}"
+
+
+# ─── Browser storage ──────────────────────────────────────────────────────────
+# Settings live in the browser's localStorage, not on the server. A hosted
+# deployment wipes its disk on every redeploy, and a file there would be shared
+# with everyone who opens the app — including these salary and balance figures.
+# localStorage is per-browser, private, and survives redeploys.
+_store = components.declare_component("coast_fire_store",
+                                      path=str(pathlib.Path(__file__).parent / "store"))
+st.markdown('<style>iframe[title="coast_fire_store"]{display:none!important;height:0!important}</style>',
+            unsafe_allow_html=True)
+
+
+def browser_store():
+    """Exchange one message with localStorage.
+
+    Returns the browser's reply, or None on the first run — the iframe has not
+    answered yet, so the app renders defaults and adopts the stored settings when
+    they arrive. A write is requested by leaving JSON in `_ls_write`; an empty
+    string clears the store. The nonce makes Streamlit re-render the component for
+    a repeated write of identical settings, which it would otherwise skip.
+    """
+    payload = st.session_state.pop("_ls_write", None)
+    return _store(action="write" if payload is not None else "read", data=payload,
+                  nonce=st.session_state.get("_ls_nonce", 0), key="_ls", default=None)
+
+
+if "_cfg" not in st.session_state:
+    st.session_state._cfg = {}
+    st.session_state._cfg_source = "defaults"
+    st.session_state._cfg_note = None
+    st.session_state._saved = None          # nothing known to be stored yet
+    st.session_state._ls_status = "waiting"
+
+_reply = browser_store()
+if _reply is not None:
+    if not _reply.get("ok"):
+        st.session_state._ls_status = "unavailable"
+    else:
+        st.session_state._ls_status = "ready"
+        # Adopt what the browser had exactly once; later replies are echoes of
+        # this same value and must not restart the script again.
+        if _reply.get("action") == "read" and not st.session_state.get("_ls_adopted"):
+            st.session_state._ls_adopted = True
+            try:
+                _decoded = json.loads(_reply["data"]) if _reply.get("data") else None
+            except ValueError:
+                _decoded = None
+                st.session_state._cfg_note = "Stored settings were unreadable. Using defaults."
+            if _decoded is not None:
+                _found, _note = parse_config(_decoded)
+                if _found:
+                    st.session_state._saved = dict(_found)
+                    st.session_state._cfg_note = _note
+                    apply_config(_found, "browser storage")
+
+
+def d(key):
+    """The default a widget should render with: saved value, else built-in."""
+    return st.session_state.get("_cfg", {}).get(key, DEFAULTS[key])
+
+
+consume_pending()
+seed_widgets()
+
 # ─── Sidebar ──────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## ⚙️ Settings")
+    # Filled in at the end of the script, once the bracket tables have been parsed
+    # and there is a complete picture of the settings to save.
+    settings_io = st.container()
 
     with st.expander("👤 Household income", expanded=True):
-        inc_you = st.number_input("Your gross salary ($/yr)", value=130_000.0, min_value=0.0,
+        inc_you = st.number_input("Your gross salary ($/yr)",  min_value=0.0,
                                   step=1_000.0, format="%.0f", key="inc_you")
-        inc_sp = st.number_input("Spouse gross salary ($/yr)", value=67_000.0, min_value=0.0,
+        inc_sp = st.number_input("Spouse gross salary ($/yr)",  min_value=0.0,
                                  step=1_000.0, format="%.0f", key="inc_sp")
-        salary_growth = st.number_input("Annual salary growth (%)", value=0.0, min_value=0.0,
-                                        max_value=15.0, step=0.5, key="salary_growth")
+        salary_growth = st.number_input("Annual salary growth (%)", 
+                                        min_value=0.0, max_value=15.0, step=0.5,
+                                        key="salary_growth")
 
     with st.expander("💵 Cash flow", expanded=True):
-        savings = st.number_input("Monthly savings ($)", value=5_000.0, min_value=0.0,
+        savings = st.number_input("Monthly savings ($)",  min_value=0.0,
                                   step=100.0, format="%.0f", key="savings")
-        expenses = st.number_input("Monthly expenses ($)", value=7_000.0, min_value=0.0,
+        expenses = st.number_input("Monthly expenses ($)",  min_value=0.0,
                                    step=100.0, format="%.0f", key="expenses")
         st.caption(f"Expenses are for reference only — they size the FIRE target below, "
                    f"they are not deducted from savings. 25× annual expenses = "
                    f"{money(expenses * 12 * 25)}.")
-        savings_growth = st.number_input("Annual savings growth (%)", value=0.0, min_value=0.0,
-                                         max_value=20.0, step=0.5, key="savings_growth")
-        bonus = st.number_input("Extra annual bonus ($)", value=0.0, min_value=0.0,
+        savings_growth = st.number_input("Annual savings growth (%)", 
+                                         min_value=0.0, max_value=20.0, step=0.5,
+                                         key="savings_growth")
+        bonus = st.number_input("Extra annual bonus ($)",  min_value=0.0,
                                 step=500.0, format="%.0f", key="bonus")
-        bonus_month = st.selectbox("Bonus month", range(1, 13), index=3,
+        bonus_month = st.selectbox("Bonus month", CHOICES["bonus_month"],
+                                   
                                    format_func=lambda m: MONTHS_ABBR[m - 1], key="bonus_month")
         st.caption("Separate from the tax refund, which is computed below.")
 
     with st.expander("🏦 Current balances"):
-        rrsp_bal_you = st.number_input("RRSP – you ($)", value=64_000.0, min_value=0.0,
+        rrsp_bal_you = st.number_input("RRSP – you ($)",  min_value=0.0,
                                        step=1_000.0, format="%.0f", key="rrsp_bal_you")
-        tfsa_bal_you = st.number_input("TFSA – you ($)", value=16_000.0, min_value=0.0,
+        tfsa_bal_you = st.number_input("TFSA – you ($)",  min_value=0.0,
                                        step=1_000.0, format="%.0f", key="tfsa_bal_you")
-        rrsp_bal_sp = st.number_input("RRSP – spouse ($)", value=0.0, min_value=0.0,
+        rrsp_bal_sp = st.number_input("RRSP – spouse ($)",  min_value=0.0,
                                       step=1_000.0, format="%.0f", key="rrsp_bal_sp")
-        tfsa_bal_sp = st.number_input("TFSA – spouse ($)", value=0.0, min_value=0.0,
+        tfsa_bal_sp = st.number_input("TFSA – spouse ($)",  min_value=0.0,
                                       step=1_000.0, format="%.0f", key="tfsa_bal_sp")
-        nonreg_bal = st.number_input("Non-registered ($)", value=0.0, min_value=0.0,
+        nonreg_bal = st.number_input("Non-registered ($)",  min_value=0.0,
                                      step=1_000.0, format="%.0f", key="nonreg_bal")
         _tot = rrsp_bal_you + tfsa_bal_you + rrsp_bal_sp + tfsa_bal_sp + nonreg_bal
         st.caption(f"Total invested today: **{money(_tot)}**")
 
     with st.expander("📥 Contribution room"):
-        rrsp_room_you = st.number_input("RRSP room – you ($)", value=50_000.0, min_value=0.0,
-                                        step=1_000.0, format="%.0f", key="rrsp_room_you")
-        rrsp_room_sp = st.number_input("RRSP room – spouse ($)", value=20_000.0, min_value=0.0,
-                                       step=1_000.0, format="%.0f", key="rrsp_room_sp")
-        tfsa_room_you = st.number_input("TFSA room – you ($)", value=63_000.0, min_value=0.0,
-                                        step=1_000.0, format="%.0f", key="tfsa_room_you")
-        tfsa_room_sp = st.number_input("TFSA room – spouse ($)", value=0.0, min_value=0.0,
-                                       step=1_000.0, format="%.0f", key="tfsa_room_sp")
+        rrsp_room_you = st.number_input("RRSP room – you ($)", 
+                                        min_value=0.0, step=1_000.0, format="%.0f",
+                                        key="rrsp_room_you")
+        rrsp_room_sp = st.number_input("RRSP room – spouse ($)", 
+                                       min_value=0.0, step=1_000.0, format="%.0f",
+                                       key="rrsp_room_sp")
+        tfsa_room_you = st.number_input("TFSA room – you ($)", 
+                                        min_value=0.0, step=1_000.0, format="%.0f",
+                                        key="tfsa_room_you")
+        tfsa_room_sp = st.number_input("TFSA room – spouse ($)", 
+                                       min_value=0.0, step=1_000.0, format="%.0f",
+                                       key="tfsa_room_sp")
         st.caption("Enter each person's own remaining room from their latest CRA notice — "
                    "TFSA and RRSP room is per person, not per household.")
-        tfsa_annual = st.number_input("New TFSA room each year ($)", value=7_000.0, min_value=0.0,
-                                      step=500.0, format="%.0f", key="tfsa_annual")
-        rrsp_accrual_pct = st.number_input("RRSP accrual (% of prior-year income)", value=18.0,
-                                           min_value=0.0, max_value=30.0, step=0.5,
-                                           key="rrsp_accrual_pct")
-        rrsp_annual_max = st.number_input("RRSP annual dollar limit ($)", value=32_490.0,
+        tfsa_annual = st.number_input("New TFSA room each year ($)", 
+                                      min_value=0.0, step=500.0, format="%.0f", key="tfsa_annual")
+        rrsp_accrual_pct = st.number_input("RRSP accrual (% of prior-year income)",
+                                            min_value=0.0,
+                                           max_value=30.0, step=0.5, key="rrsp_accrual_pct")
+        rrsp_annual_max = st.number_input("RRSP annual dollar limit ($)", 
                                           min_value=0.0, step=500.0, format="%.0f",
                                           key="rrsp_annual_max")
-        limit_indexation = st.number_input("Annual indexation of those limits (%)", value=0.0,
-                                           min_value=0.0, max_value=10.0, step=0.5,
-                                           key="limit_indexation")
-        ytd_you = st.number_input("RRSP already contributed this year – you ($)", value=0.0,
+        limit_indexation = st.number_input("Annual indexation of those limits (%)",
+                                            min_value=0.0,
+                                           max_value=10.0, step=0.5, key="limit_indexation")
+        ytd_you = st.number_input("RRSP already contributed this year – you ($)", 
                                   min_value=0.0, step=500.0, format="%.0f", key="ytd_you")
-        ytd_sp = st.number_input("RRSP already contributed this year – spouse ($)", value=0.0,
-                                 min_value=0.0, step=500.0, format="%.0f", key="ytd_sp")
+        ytd_sp = st.number_input("RRSP already contributed this year – spouse ($)",
+                                  min_value=0.0, step=500.0, format="%.0f",
+                                 key="ytd_sp")
         st.caption("Contributions made earlier this calendar year still earn a refund at the "
                    "next filing, so enter them here. Assumed already netted out of the "
                    "remaining room above.")
 
     with st.expander("🤝 Spouse group plan"):
-        employee_pct = st.number_input("Spouse contributes (% of salary)", value=7.0,
+        employee_pct = st.number_input("Spouse contributes (% of salary)", 
                                        min_value=0.0, max_value=30.0, step=0.5, key="employee_pct")
-        employer_pct = st.number_input("Employer matches (% of salary)", value=7.0,
+        employer_pct = st.number_input("Employer matches (% of salary)", 
                                        min_value=0.0, max_value=30.0, step=0.5, key="employer_pct")
-        plan_kind = st.radio("Plan type", ["Group RRSP", "DC pension"], index=0, key="plan_kind",
+        plan_kind = st.radio("Plan type", CHOICES["plan_kind"], 
+                             key="plan_kind",
                              help="Group RRSP: the employer match is taxable income, both halves "
                                   "are deductible, and both consume the spouse's RRSP room. "
                                   "DC pension: employer money is not income, only the employee "
                                   "half is deductible, and a pension adjustment reduces next "
                                   "year's RRSP room instead.")
         payroll_from_savings = st.checkbox("Fund the spouse's share out of monthly savings",
-                                           value=False, key="payroll_from_savings",
+                                           
+                                           key="payroll_from_savings",
                                            help="Off = it comes off her paycheque, so the monthly "
                                                 "savings figure above is already net of it.")
         st.caption(f"Group plan flow: {money(inc_sp * (employee_pct + employer_pct) / 100)}/yr "
@@ -479,76 +733,78 @@ with st.sidebar:
                    f"{money(inc_sp * employer_pct / 100)} matched).")
 
     with st.expander("📈 Returns"):
-        inv_return = st.number_input("Annual return (%)", value=7.0, min_value=0.0,
+        inv_return = st.number_input("Annual return (%)",  min_value=0.0,
                                      max_value=20.0, step=0.5, key="inv_return")
-        nonreg_drag = st.number_input("Tax drag on non-registered returns (%)", value=20.0,
-                                      min_value=0.0, max_value=60.0, step=1.0, key="nonreg_drag")
+        nonreg_drag = st.number_input("Tax drag on non-registered returns (%)",
+                                       min_value=0.0, max_value=60.0,
+                                      step=1.0, key="nonreg_drag")
         st.caption("Drag is applied as a haircut to the return earned inside the "
                    "non-registered account only.")
 
     with st.expander("🏠 Mortgage"):
-        mort_bal = st.number_input("Balance ($)", value=270_000.0, min_value=0.0,
+        mort_bal = st.number_input("Balance ($)",  min_value=0.0,
                                    step=5_000.0, format="%.0f", key="mort_bal")
-        mort_rate = st.number_input("Interest rate (%)", value=5.4, min_value=0.0,
+        mort_rate = st.number_input("Interest rate (%)",  min_value=0.0,
                                     max_value=20.0, step=0.1, key="mort_rate") / 100
-        mort_weekly = st.number_input("Scheduled payment ($/week)", value=441.0, min_value=0.0,
-                                      step=10.0, format="%.0f", key="mort_weekly")
-        prepay_enforce = st.checkbox("Enforce annual prepayment privilege", value=True,
-                                     key="prepay_enforce")
-        prepay_pct = st.number_input("Privilege (% of original principal per year)", value=15.0,
-                                     min_value=0.0, max_value=100.0, step=1.0, key="prepay_pct",
-                                     disabled=not prepay_enforce)
-        mort_orig = st.number_input("Original principal ($)", value=270_000.0, min_value=0.0,
+        mort_weekly = st.number_input("Scheduled payment ($/week)", 
+                                      min_value=0.0, step=10.0, format="%.0f", key="mort_weekly")
+        prepay_enforce = st.checkbox("Enforce annual prepayment privilege",
+                                      key="prepay_enforce")
+        prepay_pct = st.number_input("Privilege (% of original principal per year)",
+                                      min_value=0.0, max_value=100.0,
+                                     step=1.0, key="prepay_pct", disabled=not prepay_enforce)
+        mort_orig = st.number_input("Original principal ($)",  min_value=0.0,
                                     step=5_000.0, format="%.0f", key="mort_orig",
                                     disabled=not prepay_enforce,
                                     help="The privilege is a percentage of the original amount "
                                          "borrowed, not of the balance outstanding today.")
-        spill_to_invest = st.checkbox("Invest cash the privilege blocks", value=True,
+        spill_to_invest = st.checkbox("Invest cash the privilege blocks", 
                                       key="spill_to_invest",
                                       help="Off = that cash is held back out of the plan "
                                            "entirely rather than invested. It is reported "
                                            "separately, not carried into a later month.")
-        redirect_freed = st.checkbox("Redirect the payment once the mortgage is gone", value=True,
-                                     key="redirect_freed")
+        redirect_freed = st.checkbox("Redirect the payment once the mortgage is gone",
+                                      key="redirect_freed")
         st.caption(f"Scheduled payment is {money(mort_weekly * 52 / 12)}/mo and is assumed to be "
                    f"paid *outside* the monthly savings figure. Privilege resets each January.")
 
     with st.expander("🪜 Allocation waterfall"):
         waterfall = st.multiselect("Priority order for invested dollars", BUCKETS,
-                                   default=["RRSP – You", "TFSA – You", "TFSA – Spouse",
-                                            "RRSP – Spouse"], key="waterfall")
+                                    key="waterfall")
         st.caption("Each bucket fills to its remaining room before the next one starts. "
                    "Non-registered always catches whatever is left over, so it does not need "
                    "to be listed unless you want it earlier in the queue.")
 
     with st.expander("🧾 Tax refund"):
-        refund_month = st.selectbox("Refund lands in", range(1, 13), index=3,
+        refund_month = st.selectbox("Refund lands in", CHOICES["refund_month"],
+                                    
                                     format_func=lambda m: MONTHS_ABBR[m - 1], key="refund_month")
-        refund_rule = st.radio("What happens to it",
-                               ["Follow the split", "All to investments", "All to mortgage",
-                                "Spend it"], index=0, key="refund_rule")
+        refund_rule = st.radio("What happens to it", CHOICES["refund_rule"],
+                                key="refund_rule")
         st.caption("The refund is computed each January from that year's RRSP deductions at "
                    "the household's actual Alberta + federal rates, then paid out in the month "
                    "chosen here.")
 
     with st.expander("🎯 Goal & horizon", expanded=True):
-        goal = st.number_input("Target portfolio ($)", value=600_000.0, min_value=10_000.0,
+        goal = st.number_input("Target portfolio ($)",  min_value=10_000.0,
                                step=10_000.0, format="%.0f", key="goal")
-        goal_basis = st.radio("Measured on", ["Gross balances", "After-tax (RRSP discounted)"],
-                              index=0, key="goal_basis")
-        rrsp_withdraw_rate = st.number_input("Assumed RRSP withdrawal tax rate (%)", value=25.0,
-                                             min_value=0.0, max_value=60.0, step=1.0,
-                                             key="rrsp_withdraw_rate")
-        require_mort_paid = st.checkbox("Goal also requires the mortgage cleared", value=True,
-                                        key="require_mort_paid")
-        horizon_years = st.number_input("Horizon (years)", value=10, min_value=1, max_value=40,
-                                        step=1, key="horizon_years")
+        goal_basis = st.radio("Measured on", CHOICES["goal_basis"],
+                               key="goal_basis")
+        rrsp_withdraw_rate = st.number_input("Assumed RRSP withdrawal tax rate (%)",
+                                              min_value=0.0,
+                                             max_value=60.0, step=1.0, key="rrsp_withdraw_rate")
+        require_mort_paid = st.checkbox("Goal also requires the mortgage cleared",
+                                         key="require_mort_paid")
+        horizon_years = st.number_input("Horizon (years)",  min_value=1,
+                                        max_value=40, step=1, key="horizon_years")
         st.markdown("**Splits to sweep**")
         c1, c2, c3 = st.columns(3)
-        sweep_lo = c1.number_input("From %", value=1, min_value=0, max_value=100, step=1, key="lo")
-        sweep_hi = c2.number_input("To %", value=99, min_value=0, max_value=100, step=1, key="hi")
-        sweep_step = c3.number_input("Step", value=1, min_value=1, max_value=50, step=1, key="step")
-
+        sweep_lo = c1.number_input("From %",  min_value=0, max_value=100, step=1,
+                                   key="lo")
+        sweep_hi = c2.number_input("To %",  min_value=0, max_value=100, step=1,
+                                   key="hi")
+        sweep_step = c3.number_input("Step",  min_value=1, max_value=50, step=1,
+                                     key="step")
 
 # ─── Header ───────────────────────────────────────────────────────────────────
 st.markdown("# 🎯 Coast FIRE Scenario Planner")
@@ -602,17 +858,17 @@ with st.expander("🧾 Tax engine — federal & Alberta brackets (editable)"):
     tc1, tc2, tc3 = st.columns([2, 2, 1.4])
     with tc1:
         st.markdown("**Federal**")
-        fed_df = st.data_editor(bracket_df(FED_BRACKETS_DEFAULT), num_rows="dynamic",
-                                hide_index=True, width="stretch", key="fed_df")
+        fed_df = st.data_editor(bracket_df(d("fed_brackets")), num_rows="dynamic",
+                                hide_index=True, width="stretch", key=editor_key("fed_df"))
     with tc2:
         st.markdown("**Alberta**")
-        ab_df = st.data_editor(bracket_df(AB_BRACKETS_DEFAULT), num_rows="dynamic",
-                               hide_index=True, width="stretch", key="ab_df")
+        ab_df = st.data_editor(bracket_df(d("ab_brackets")), num_rows="dynamic",
+                               hide_index=True, width="stretch", key=editor_key("ab_df"))
     with tc3:
         st.markdown("**Personal amounts**")
-        fed_bpa = st.number_input("Federal BPA ($)", value=FED_BPA_DEFAULT, min_value=0.0,
+        fed_bpa = st.number_input("Federal BPA ($)",  min_value=0.0,
                                   step=100.0, format="%.0f", key="fed_bpa")
-        ab_bpa = st.number_input("Alberta BPA ($)", value=AB_BPA_DEFAULT, min_value=0.0,
+        ab_bpa = st.number_input("Alberta BPA ($)",  min_value=0.0,
                                  step=100.0, format="%.0f", key="ab_bpa")
         st.caption("Credited at the lowest bracket rate.")
     fed_brackets = parse_brackets(fed_df, FED_BRACKETS_DEFAULT)
@@ -878,6 +1134,117 @@ for ytab, (yr, yrows) in zip(st.tabs([str(y) for y in years]), years.items()):
             st.caption(f"🎯 Goal reached {detail['goal_reached']} — {money(goal)} "
                        + ("after tax" if cfg.goal_basis == "net" else "invested")
                        + (" with the mortgage cleared." if require_mort_paid else "."))
+
+# ─── Save / load settings ─────────────────────────────────────────────────────
+# Rendered into the placeholder at the top of the sidebar, but run here at the end
+# so the snapshot it stores includes the bracket tables parsed above.
+current_cfg = gather_config(fed_brackets, ab_brackets)
+store_status = st.session_state.get("_ls_status", "waiting")
+stored_cfg = st.session_state.get("_saved")
+unsaved = (stored_cfg is None
+           or json.dumps(current_cfg, sort_keys=True) != json.dumps(stored_cfg, sort_keys=True))
+
+
+def queue_write(payload):
+    """Hand the browser something to store on the next run."""
+    st.session_state._ls_write = payload
+    st.session_state._ls_nonce = st.session_state.get("_ls_nonce", 0) + 1
+
+
+with settings_io:
+    status = st.empty()     # written last, so it reflects a save made just below
+    if st.session_state.get("_cfg_note"):
+        st.warning(st.session_state["_cfg_note"])
+    if store_status == "unavailable":
+        st.warning("This browser will not let the app store anything — a private window, or "
+                   "site data turned off. Settings will not be remembered; use Download and "
+                   "Load below instead.")
+
+    # The panel is built only once the browser has reported back. `expanded` is
+    # honoured on the run that first creates an expander and ignored afterwards,
+    # so deciding it while storage is still unknown would wedge it shut for
+    # exactly the first-time user who needs to see it. Remembering the decision
+    # keeps it from fighting the reader later.
+    if store_status != "waiting":
+        st.session_state.setdefault("_panel_open", stored_cfg is None)
+    with st.expander("💾 Save & load", expanded=st.session_state.get("_panel_open", False)):
+        bc1, bc2 = st.columns(2)
+        if bc1.button("💾 Save", key="btn_save", disabled=store_status != "ready"):
+            queue_write(json.dumps(current_cfg, sort_keys=True))
+            st.session_state._saved = dict(current_cfg)
+            st.session_state._cfg_source = "browser storage"
+            st.session_state._cfg_note = None
+            st.rerun()
+        if bc2.button("↩️ Defaults", key="btn_reset"):
+            apply_config({}, "defaults")
+        st.caption("Save keeps every setting on this sidebar, tax brackets included, in this "
+                   "browser. It is restored automatically next time you open the app — on this "
+                   "browser only, and nobody else who opens the app can see it. "
+                   "**Defaults** only refills the form; press Save afterwards to replace what "
+                   "is stored.")
+
+        st.download_button("⬇️ Download a copy", key="btn_download",
+                           data=json.dumps(current_cfg, indent=2, sort_keys=True),
+                           file_name="coast_fire_config.json", mime="application/json")
+        upload = st.file_uploader("⬆️ Load from a file", type="json", key="uploader")
+        if upload is not None:
+            # Only act on a genuinely new file: the uploader keeps handing back the
+            # same one on every rerun, which would fight any edit made since.
+            uid = getattr(upload, "file_id", None) or (upload.name, upload.size)
+            if st.session_state.get("_upload_id") != uid:
+                st.session_state._upload_id = uid
+                try:
+                    loaded, note = parse_config(json.loads(upload.getvalue().decode("utf-8")))
+                except (ValueError, UnicodeDecodeError) as err:
+                    st.error(f"Not readable JSON: {err}")
+                else:
+                    if loaded:
+                        st.session_state._cfg_note = note
+                        apply_config(loaded, upload.name)
+                    else:
+                        st.error(note or "No usable settings in that file.")
+        st.caption("A download is a backup you keep, and works even where the browser will not "
+                   "store anything. Loading one does not save it — press Save as well.")
+
+        st.markdown("**Move to another device**")
+        st.caption("Settings live in one browser, so a phone starts out empty. Copy this code, "
+                   "send it to yourself, then paste it on the other device and press Load. It "
+                   "always describes what is on screen right now.")
+        st.code(encode_settings(current_cfg), language=None)
+        pasted = st.text_area("Paste a settings code — or settings JSON", key="paste_box",
+                              height=80, placeholder="Paste here…")
+        if st.button("📥 Load pasted settings", key="btn_paste"):
+            decoded, err = decode_settings(pasted)
+            if err:
+                st.error(err)
+            else:
+                loaded, note = parse_config(decoded)
+                if loaded:
+                    st.session_state._cfg_note = note
+                    apply_config(loaded, "pasted settings")
+                else:
+                    st.error(note or "No usable settings in that code.")
+        st.caption("Loading does not save — press Save on the new device too.")
+
+        if st.button("🗑 Forget saved settings", key="btn_forget",
+                     disabled=store_status != "ready" or stored_cfg is None):
+            queue_write("")             # empty payload clears the store
+            st.session_state._saved = None
+            apply_config({}, "defaults")
+
+    # Recomputed after the buttons above, so a save made this run shows as saved.
+    stored_cfg = st.session_state.get("_saved")
+    unsaved = (stored_cfg is None
+               or json.dumps(current_cfg, sort_keys=True) != json.dumps(stored_cfg, sort_keys=True))
+    if store_status == "waiting":
+        status.caption("📂 Checking this browser for saved settings…")
+    elif store_status == "unavailable":
+        status.caption("📂 Storage unavailable · settings will not be remembered")
+    elif stored_cfg is None:
+        status.caption("📂 Nothing saved in this browser yet · press **Save** below")
+    else:
+        status.caption(f"📂 Loaded from this browser · "
+                       f"{'**unsaved changes**' if unsaved else 'saved'}")
 
 st.markdown(f"""
 <div class="info-box" style="margin-top:16px;text-align:center">
