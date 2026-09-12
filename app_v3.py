@@ -16,6 +16,8 @@ from datetime import date
 import pathlib
 import colorsys
 import json
+import base64
+import zlib
 
 st.set_page_config(page_title="Coast FIRE Planner", page_icon="🎯", layout="wide", initial_sidebar_state="expanded")
 
@@ -470,6 +472,40 @@ def parse_config(raw):
             cfg[key] = clean
     note = f"Ignored unusable values for: {', '.join(sorted(rejected))}." if rejected else None
     return cfg, note
+
+
+def encode_settings(cfg):
+    """Pack settings into a short code that survives being emailed or messaged.
+
+    Only the settings that differ from the built-in defaults are carried, which
+    keeps a typical code short; loading one overwrites every widget, so the keys
+    left out land on their defaults rather than on whatever the other device had.
+    Compressed before encoding, and urlsafe base64 so that nothing in it gets
+    mangled by a chat client or a URL bar.
+    """
+    changed = {k: v for k, v in cfg.items() if k not in DEFAULTS or v != DEFAULTS[k]}
+    raw = json.dumps(changed, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return base64.urlsafe_b64encode(zlib.compress(raw, 9)).decode("ascii")
+
+
+def decode_settings(text):
+    """Read back a share code, or plain settings JSON. Returns (settings, error)."""
+    text = (text or "").strip()
+    if not text:
+        return None, "Nothing pasted."
+    if text.startswith("{"):
+        try:
+            return json.loads(text), None
+        except ValueError as err:
+            return None, f"That looks like settings JSON but will not parse ({err})."
+    # Mail and chat clients wrap long codes, so put the line back together and
+    # restore any padding that got trimmed along the way.
+    packed = "".join(text.split())
+    try:
+        blob = base64.urlsafe_b64decode(packed + "=" * (-len(packed) % 4))
+        return json.loads(zlib.decompress(blob).decode("utf-8")), None
+    except (ValueError, zlib.error, UnicodeDecodeError):
+        return None, "That is not a settings code. Copy the whole code and try again."
 
 
 def gather_config(fed_brackets, ab_brackets):
@@ -1169,6 +1205,26 @@ with settings_io:
                         st.error(note or "No usable settings in that file.")
         st.caption("A download is a backup you keep, and works even where the browser will not "
                    "store anything. Loading one does not save it — press Save as well.")
+
+        st.markdown("**Move to another device**")
+        st.caption("Settings live in one browser, so a phone starts out empty. Copy this code, "
+                   "send it to yourself, then paste it on the other device and press Load. It "
+                   "always describes what is on screen right now.")
+        st.code(encode_settings(current_cfg), language=None)
+        pasted = st.text_area("Paste a settings code — or settings JSON", key="paste_box",
+                              height=80, placeholder="Paste here…")
+        if st.button("📥 Load pasted settings", key="btn_paste"):
+            decoded, err = decode_settings(pasted)
+            if err:
+                st.error(err)
+            else:
+                loaded, note = parse_config(decoded)
+                if loaded:
+                    st.session_state._cfg_note = note
+                    apply_config(loaded, "pasted settings")
+                else:
+                    st.error(note or "No usable settings in that code.")
+        st.caption("Loading does not save — press Save on the new device too.")
 
         if st.button("🗑 Forget saved settings", key="btn_forget",
                      disabled=store_status != "ready" or stored_cfg is None):

@@ -45,11 +45,22 @@ came from and whether you have unsaved changes.
 - **Save** replaces what is stored with what is currently on screen.
 - **Defaults** refills the form with the built-in values. It does *not* clear
   what is stored — press Save afterwards if that is what you want.
-- **Download a copy** / **Load from a file** move settings between browsers and
-  machines, and work even where the browser refuses to store anything. Loading a
-  file does not save it; press Save as well.
+- **Download a copy** / **Load from a file** are the backup route, and work even
+  where the browser refuses to store anything.
+- **Move to another device** shows a short code describing what is on screen.
+  Send it to yourself however you like — message, email, notes — then paste it on
+  the other device and press Load. The box also accepts plain settings JSON, so
+  a downloaded file works too if you would rather paste its contents.
 - **Forget saved settings** wipes the stored copy and returns the form to
   defaults.
+
+Loading, by any route, does not save. Press **Save** on the new device as well,
+or it will be gone next time.
+
+The code carries only the settings you have changed from the defaults, which is
+why it stays short — around 40 characters for a single change, and still under
+300 for a dozen. Loading one overwrites *every* setting, so anything left out of
+the code lands on its default rather than on whatever that device had before.
 
 A browser that blocks storage is handled rather than ignored: the app says so,
 disables Save, and still runs normally on defaults. Anything unusable in a
