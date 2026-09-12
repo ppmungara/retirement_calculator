@@ -1,0 +1,56 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>coast_fire_store</title>
+<!--
+  An invisible bridge between the planner and the browser's localStorage.
+
+  Settings cannot live on the server: a hosted deployment wipes its disk on every
+  redeploy, and one file there would be shared by everyone who opens the app.
+  localStorage is per-browser and private to the person using it.
+
+  This implements Streamlit's component protocol by hand rather than pulling in a
+  dependency: announce readiness, answer each render with the value Python should
+  receive, and report a height of zero so nothing is drawn.
+-->
+<script>
+  const KEY = "coast_fire_planner_config_v1";
+
+  function post(type, payload) {
+    window.parent.postMessage(
+      Object.assign({ isStreamlitMessage: true, type: type }, payload), "*");
+  }
+  const reply = (value) => post("streamlit:setComponentValue", { value: value, dataType: "json" });
+  const collapse = () => post("streamlit:setFrameHeight", { height: 0 });
+
+  function handle(args) {
+    // An empty or absent payload on a write means "forget what is stored".
+    if (args.action === "write") {
+      if (args.data) {
+        localStorage.setItem(KEY, args.data);
+        return { ok: true, action: "write", data: args.data };
+      }
+      localStorage.removeItem(KEY);
+      return { ok: true, action: "write", data: null };
+    }
+    return { ok: true, action: "read", data: localStorage.getItem(KEY) };
+  }
+
+  window.addEventListener("message", (event) => {
+    const message = event.data;
+    if (!message || message.type !== "streamlit:render") return;
+    const args = message.args || {};
+    let result;
+    try {
+      result = handle(args);
+    } catch (err) {
+      // Private windows and blocked site data throw on access rather than
+      // returning null, so the app is told storage is unusable and says so.
+      result = { ok: false, action: args.action || "read", data: null, error: String(err) };
+    }
+    collapse();
+    reply(result);
+  });
+
+  post("streamlit:componentReady", { apiVersion: 1 });
+  collapse();
+</script>

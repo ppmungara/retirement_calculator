@@ -19,6 +19,45 @@ This file is also rendered inside the app, under **📖 Read me** near the top.
 
 ---
 
+## Saving your settings
+
+There are a lot of inputs, so you should only have to enter them once. Fill the
+sidebar in, open **💾 Save & load** at the top of it, and press **Save**. Every
+setting — including the edited tax brackets — is remembered, and restored
+automatically the next time you open the app.
+
+Settings are kept in **your browser**, not on the server. That matters for a
+hosted deployment: a server file would be wiped on every redeploy, and a single
+public app would serve one person's salary and balances to everybody else who
+opened it. Browser storage is private to you and survives redeploys.
+
+The consequences are worth knowing:
+
+- It is **per browser and per device**. Saving on your laptop does not carry to
+  your phone, and a different browser starts fresh.
+- Clearing site data, or a private window, wipes it. Use **Download a copy** for
+  anything you would be annoyed to lose.
+- Anyone else using the same browser profile on the same machine sees it.
+
+The status line at the top of the sidebar always says where the current settings
+came from and whether you have unsaved changes.
+
+- **Save** replaces what is stored with what is currently on screen.
+- **Defaults** refills the form with the built-in values. It does *not* clear
+  what is stored — press Save afterwards if that is what you want.
+- **Download a copy** / **Load from a file** move settings between browsers and
+  machines, and work even where the browser refuses to store anything. Loading a
+  file does not save it; press Save as well.
+- **Forget saved settings** wipes the stored copy and returns the form to
+  defaults.
+
+A browser that blocks storage is handled rather than ignored: the app says so,
+disables Save, and still runs normally on defaults. Anything unusable in a
+stored or uploaded file falls back to the built-in default for that one setting,
+and the app names the values it ignored.
+
+---
+
 ## How a month is simulated
 
 Every scenario walks forward one month at a time, starting the first of next
@@ -136,6 +175,7 @@ For planning purposes only. It is not tax advice.
 | File | What it is |
 | --- | --- |
 | `app_v3.py` | This app — the current Coast FIRE Scenario Planner. |
+| `store/` | A tiny invisible component that reads and writes browser storage. |
 | `app_v2.py`, `app.py` | Earlier versions, kept for reference. |
 | `mortgage_payoff.py` | A standalone mortgage payoff explorer. |
 | `spending_calculator` | A spending categoriser. |
