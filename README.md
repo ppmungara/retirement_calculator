@@ -127,9 +127,10 @@ not treat them the same way:
 - **The enhanced slice of CPP and all of CPP2 are deductions.** They come off
   taxable income, which is why they change what an RRSP contribution is worth —
   a deduction that would have unwound at 36% can end up partly unwinding at
-  30.5% once CPP has already pulled income down. Over ten years on the default
-  figures that is about $1,000 less refund than ignoring CPP entirely would
-  suggest.
+  30.5% once CPP has already pulled income down. On the figures the app ships
+  with, that is roughly $700 less refund across ten years than ignoring CPP
+  entirely would suggest — the exact gap moves with income and with how much is
+  being contributed.
 
 Both stop once the year's maximum is reached — at $130k that is after month
 eight — so take-home rises for the rest of the year. Whether that increase gets
