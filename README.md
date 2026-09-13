@@ -81,6 +81,8 @@ month, in this order:
    their growth rates.
 2. **The spouse's group plan runs off payroll** — her contribution and the
    employer match go into her RRSP, consuming room and generating a deduction.
+   CPP and EI for the month are taken for both of you, stopping once the year's
+   maximums are reached.
 3. **Cash is totalled** — monthly savings, plus any bonus due this month, plus
    the freed-up mortgage payment once the mortgage is gone, less her payroll
    contribution if you have chosen to fund it from savings.
@@ -114,6 +116,29 @@ Non-refundable credits are identical on both sides of that subtraction, so they
 cancel out and do not affect the refund. Both bracket tables and the basic
 personal amounts are editable in the app under **🧾 Tax engine**, so they can be
 rolled forward to a new tax year without touching the code.
+
+## CPP and EI
+
+Both are modelled, and they are not treated the same way, because the CRA does
+not treat them the same way:
+
+- **Base CPP and EI are non-refundable credits.** They reduce tax owing, not
+  income.
+- **The enhanced slice of CPP and all of CPP2 are deductions.** They come off
+  taxable income, which is why they change what an RRSP contribution is worth —
+  a deduction that would have unwound at 36% can end up partly unwinding at
+  30.5% once CPP has already pulled income down. Over ten years on the default
+  figures that is about $1,000 less refund than ignoring CPP entirely would
+  suggest.
+
+Both stop once the year's maximum is reached — at $130k that is after month
+eight — so take-home rises for the rest of the year. Whether that increase gets
+saved is a setting: leave it off and the monthly savings figure is treated as an
+average that already allows for it.
+
+Rates, the basic exemption, YMPE, YAMPE and the EI maximum are all editable
+alongside the tax brackets, and default to the 2025 employee figures. The whole
+thing can be switched off with one checkbox, which reverts to income tax only.
 
 ## The settings
 
@@ -154,14 +179,22 @@ withdrawal rate so the two are comparable.
   wide for one; hover any line to identify it. **Account Mix** shows where the
   money sits over time under the winning split.
 - **Month-by-month detail** — the full schedule for any one split, tabbed by
-  calendar year, with remaining contribution room at the stopping point.
+  calendar year, with remaining contribution room at the stopping point. **Money
+  in** shows which account got funded each month and by how much, per person:
+  RRSP and TFSA for each of you, non-registered, what went at the mortgage, the
+  refund, and the CPP and EI paid. Each year ends with a totals line, which is
+  the row to check against contribution room. *of which group plan* is the slice
+  of the spouse's RRSP that came from her payroll and the employer match rather
+  than household savings — it sits inside her RRSP column, not on top of it.
+  **Balances** switches to the point-in-time view, and **Both** shows them side
+  by side.
 
 ## What is deliberately not modelled
 
 Worth knowing before you lean on a number:
 
-- **Income tax only.** CPP and EI are excluded. They cancel out of the refund,
-  but the tax figures shown are not full payroll withholding.
+- **Employer-side CPP and EI** are not modelled — they cost the household
+  nothing. Employee contributions are.
 - **Credits beyond the basic personal amount** are not modelled, and the federal
   BPA phase-out at high incomes is not applied.
 - **A flat expected return**, applied every month. No sequence-of-returns risk,
