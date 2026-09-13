@@ -50,6 +50,19 @@ AB_BRACKETS_DEFAULT  = [(60_000.0, 0.08), (151_234.0, 0.10), (181_481.0, 0.12),
 FED_BPA_DEFAULT = 16_129.0
 AB_BPA_DEFAULT  = 22_323.0
 
+# CPP and EI, 2025 employee figures. Every one of these is editable in the app.
+# CPP is split: contributions at the base rate are a non-refundable credit, while
+# the "enhanced" slice above it — and all of CPP2 — come off income as deductions.
+# EI is a credit in full.
+CPP_RATE_DEFAULT      = 5.95     # employee rate on pensionable earnings
+CPP_BASE_RATE_DEFAULT = 4.95     # the part of that rate credited rather than deducted
+CPP_EXEMPT_DEFAULT    = 3_500.0  # basic exemption
+CPP_YMPE_DEFAULT      = 71_300.0
+CPP2_RATE_DEFAULT     = 4.00
+CPP2_YAMPE_DEFAULT    = 81_200.0
+EI_RATE_DEFAULT       = 1.64
+EI_MIE_DEFAULT        = 65_700.0
+
 
 def bracket_tax(income, brackets):
     """Tax before credits on `income` under a progressive bracket table."""
@@ -62,30 +75,61 @@ def bracket_tax(income, brackets):
     return tax
 
 
-def schedule_tax(income, brackets, bpa):
-    """Tax for one jurisdiction, net of the basic personal amount credit.
+def schedule_tax(taxable, brackets, credit_base):
+    """Tax for one jurisdiction, net of its non-refundable credits.
 
-    The BPA is a non-refundable credit valued at the lowest bracket rate, which is
-    why it is netted off here rather than subtracted from income.
+    `credit_base` is the total of the amounts credited at the lowest bracket rate
+    — the basic personal amount, plus base CPP and EI when those are modelled.
+    They reduce tax rather than income, which is why they are netted off here.
     """
-    income = max(0.0, income)
-    credit = min(income, max(0.0, bpa)) * brackets[0][1]
-    return max(0.0, bracket_tax(income, brackets) - credit)
+    return max(0.0, bracket_tax(max(0.0, taxable), brackets) - max(0.0, credit_base) * brackets[0][1])
 
 
-def total_tax(income, cfg):
-    return (schedule_tax(income, cfg.fed_brackets, cfg.fed_bpa)
-            + schedule_tax(income, cfg.ab_brackets, cfg.ab_bpa))
+def cpp_ei_for(gross, cfg):
+    """Employee CPP and EI on a year's employment income.
+
+    Returns (base CPP, enhanced CPP, CPP2, EI). The split matters: the base slice
+    and EI are credits, while the enhanced slice and CPP2 are deductions, so they
+    move taxable income and can change which bracket an RRSP deduction unwinds.
+    """
+    if not cfg.model_cpp_ei or gross <= 0:
+        return 0.0, 0.0, 0.0, 0.0
+    pensionable = max(0.0, min(gross, cfg.cpp_ympe) - cfg.cpp_exempt)
+    enhanced = pensionable * max(0.0, cfg.cpp_rate - cfg.cpp_base_rate) / 100
+    base = pensionable * cfg.cpp_base_rate / 100
+    cpp2 = max(0.0, min(gross, cfg.cpp2_yampe) - cfg.cpp_ympe) * cfg.cpp2_rate / 100
+    ei = min(gross, cfg.ei_mie) * cfg.ei_rate / 100
+    return base, enhanced, cpp2, ei
 
 
-def marginal_rate(income, cfg):
+def taxable_income(gross, cfg, rrsp_deduction=0.0):
+    _, enhanced, cpp2, _ = cpp_ei_for(gross, cfg)
+    return max(0.0, gross - enhanced - cpp2 - max(0.0, rrsp_deduction))
+
+
+def total_tax(gross, cfg, rrsp_deduction=0.0):
+    """Combined federal and Alberta income tax on a salary."""
+    base, _, _, ei = cpp_ei_for(gross, cfg)
+    taxable = taxable_income(gross, cfg, rrsp_deduction)
+    return (schedule_tax(taxable, cfg.fed_brackets, cfg.fed_bpa + base + ei)
+            + schedule_tax(taxable, cfg.ab_brackets, cfg.ab_bpa + base + ei))
+
+
+def marginal_rate(gross, cfg):
+    """Combined rate on the next dollar of taxable income.
+
+    Measured at income after the CPP deductions, since that is the rate an RRSP
+    contribution actually unwinds. It is not a full marginal cost of earning one
+    more dollar — that would also carry CPP and EI on the dollar itself.
+    """
+    taxable = taxable_income(gross, cfg)
+
     def rate_at(brackets):
-        lower = 0.0
         for limit, rate in brackets:
-            if income <= limit:
+            if taxable <= limit:
                 return rate
-            lower = limit
         return brackets[-1][1]
+
     return rate_at(cfg.fed_brackets) + rate_at(cfg.ab_brackets)
 
 
@@ -94,14 +138,44 @@ def refund_for(gross, deduction, cfg):
 
     Computed as a difference of two full tax calculations rather than
     `deduction x marginal rate`, so a deduction that spans a bracket boundary is
-    valued correctly. Non-refundable credits are identical on both sides and
-    cancel out, which is why CPP/EI credits can be left out without affecting the
-    result.
+    valued correctly. CPP and EI credits are identical on both sides and cancel
+    out; their deductible slices do not, because they shift where the deduction
+    lands in the brackets.
     """
     if deduction <= 0 or gross <= 0:
         return 0.0
-    d = min(deduction, gross)
-    return max(0.0, total_tax(gross, cfg) - total_tax(gross - d, cfg))
+    return max(0.0, total_tax(gross, cfg) - total_tax(gross, cfg, min(deduction, gross)))
+
+
+def take_home(gross, cfg, rrsp_deduction=0.0):
+    """What actually reaches the bank: pay less income tax, CPP and EI."""
+    base, enhanced, cpp2, ei = cpp_ei_for(gross, cfg)
+    return gross - total_tax(gross, cfg, rrsp_deduction) - base - enhanced - cpp2 - ei
+
+
+def payroll_schedule(gross, cfg):
+    """This year's CPP and EI month by month, stopping once each annual maximum is hit.
+
+    Deductions come off every paycheque at the statutory rate until the year's
+    maximum is reached, and then stop — which is why take-home rises partway
+    through the year. Annual totals are exact; CPP2's lower rate is not given its
+    own slower stretch at the end, so the month it stops can be slightly early.
+    """
+    base, enhanced, cpp2, ei_total = cpp_ei_for(gross, cfg)
+    cpp_left, ei_left = base + enhanced + cpp2, ei_total
+    monthly = max(0.0, gross) / 12
+    cpp_per_month = max(0.0, monthly - cfg.cpp_exempt / 12) * cfg.cpp_rate / 100
+    ei_per_month = monthly * cfg.ei_rate / 100
+    months = []
+    for _ in range(12):
+        taken_cpp = min(cpp_per_month, cpp_left)
+        taken_ei = min(ei_per_month, ei_left)
+        cpp_left -= taken_cpp
+        ei_left -= taken_ei
+        # The third value is what a still-deducting month would have cost, so the
+        # simulation can see how much take-home frees up once they stop.
+        months.append((taken_cpp, taken_ei, cpp_per_month + ei_per_month))
+    return months
 
 
 # ─── Configuration ────────────────────────────────────────────────────────────
@@ -163,6 +237,17 @@ class Cfg:
     ab_brackets: list
     fed_bpa: float
     ab_bpa: float
+    # payroll
+    model_cpp_ei: bool
+    cpp_rate: float
+    cpp_base_rate: float
+    cpp_exempt: float
+    cpp_ympe: float
+    cpp2_rate: float
+    cpp2_yampe: float
+    ei_rate: float
+    ei_mie: float
+    cpp_ei_bump: bool       # add the freed-up take-home to savings once they max out
     # goal
     goal: float
     goal_basis: str             # "gross" | "net"
@@ -228,8 +313,15 @@ def run_scenario(cfg, invest_pct):
     inv_rate_m   = cfg.inv_return / 100 / 12
     nonreg_rate_m = cfg.inv_return / 100 * (1 - cfg.nonreg_drag / 100) / 12
 
+    # This year's CPP and EI, month by month, for each person. Rebuilt every
+    # January because salaries and the maximums both move.
+    sched_you = payroll_schedule(cfg.you.income, cfg)
+    sched_sp = payroll_schedule(cfg.spouse.income + (cfg.spouse.income * cfg.spouse.employer_pct
+                                                    / 100 if cfg.group_is_rrsp else 0.0), cfg)
+
     prepay_used = refund_due = pa_accum = 0.0
     total_refund = total_idle = total_payroll = 0.0
+    total_cpp_ei = 0.0
     mort_paid_label = goal_label = None
     goal_idx = None
     rows = []
@@ -255,6 +347,9 @@ def run_scenario(cfg, invest_pct):
             savings    *= 1 + cfg.savings_growth / 100
             tfsa_annual *= 1 + cfg.limit_indexation / 100
             rrsp_max    *= 1 + cfg.limit_indexation / 100
+            sched_you = payroll_schedule(inc["you"], cfg)
+            sched_sp = payroll_schedule(inc["sp"] + (inc["sp"] * cfg.spouse.employer_pct / 100
+                                                     if cfg.group_is_rrsp else 0.0), cfg)
 
         # ── Spouse's group plan, deducted at source before any other saving ──
         ee = inc["sp"] * cfg.spouse.employee_pct / 100 / 12
@@ -279,10 +374,21 @@ def run_scenario(cfg, invest_pct):
         contrib_total["RRSP – Spouse"] += payroll_in
         total_payroll += payroll_in
 
+        # ── CPP and EI for this month ──
+        cpp_you, ei_you, full_you = sched_you[d.month - 1]
+        cpp_sp, ei_sp, full_sp = sched_sp[d.month - 1]
+        cpp_ei_month = cpp_you + ei_you + cpp_sp + ei_sp
+        total_cpp_ei += cpp_ei_month
+        # Once the year's maximums are reached the deductions stop and take-home
+        # rises. Whether that shows up as extra saving is the household's call.
+        freed_payroll = ((full_you - cpp_you - ei_you) + (full_sp - cpp_sp - ei_sp)
+                         if cfg.cpp_ei_bump else 0.0)
+
         # ── Cash available this month ──
         bonus = cfg.bonus if d.month == cfg.bonus_month else 0.0
         freed = mort_monthly if (mort <= 0 and cfg.redirect_freed) else 0.0
-        base_cash = savings + bonus + freed - (ee if cfg.payroll_from_savings else 0.0)
+        base_cash = (savings + bonus + freed + freed_payroll
+                     - (ee if cfg.payroll_from_savings else 0.0))
         base_cash = max(0.0, base_cash)
 
         refund_paid = 0.0
@@ -356,7 +462,9 @@ def run_scenario(cfg, invest_pct):
                      "net_bal": net_total, "mort_interest": interest, "mort_extra": extra,
                      "invested": invest_cash, "refund": refund_paid, "idle": idle,
                      "rrsp": rrsp_bal, "tfsa": bal["TFSA – You"] + bal["TFSA – Spouse"],
-                     "nonreg": bal[NONREG], **{f"c_{b}": contrib[b] for b in BUCKETS}})
+                     "nonreg": bal[NONREG], "group": payroll_in, "cpp_ei": cpp_ei_month,
+                     "contrib_in": sum(contrib.values()),
+                     **{f"c_{b}": contrib[b] for b in BUCKETS}})
 
         if goal_label is None and measure >= cfg.goal and (mort <= 0 or not cfg.require_mort_paid):
             goal_label, goal_idx = lbl, i
@@ -374,6 +482,7 @@ def run_scenario(cfg, invest_pct):
         "total_invested": sum(r["invested"] for r in rows),
         "total_prepaid": sum(r["mort_extra"] for r in rows),
         "total_refund": total_refund, "total_idle": total_idle,
+        "total_cpp_ei": total_cpp_ei,
         "total_payroll": total_payroll, "contrib_total": contrib_total,
         "room_left": dict(room),
     }
@@ -419,6 +528,12 @@ DEFAULTS = {
     "rrsp_withdraw_rate": 25.0, "require_mort_paid": True,
     "horizon_years": 10, "lo": 1, "hi": 99, "step": 1,
     "fed_bpa": FED_BPA_DEFAULT, "ab_bpa": AB_BPA_DEFAULT,
+    "model_cpp_ei": True, "cpp_ei_bump": False,
+    "cpp_rate": CPP_RATE_DEFAULT, "cpp_base_rate": CPP_BASE_RATE_DEFAULT,
+    "cpp_exempt": CPP_EXEMPT_DEFAULT, "cpp_ympe": CPP_YMPE_DEFAULT,
+    "cpp2_rate": CPP2_RATE_DEFAULT, "cpp2_yampe": CPP2_YAMPE_DEFAULT,
+    "ei_rate": EI_RATE_DEFAULT, "ei_mie": EI_MIE_DEFAULT,
+    "detail_view": "💵 Money in",
     "fed_brackets": [[None if l == float("inf") else l, r] for l, r in FED_BRACKETS_DEFAULT],
     "ab_brackets": [[None if l == float("inf") else l, r] for l, r in AB_BRACKETS_DEFAULT],
 }
@@ -429,6 +544,7 @@ CHOICES = {
     "plan_kind": ["Group RRSP", "DC pension"],
     "refund_rule": ["Follow the split", "All to investments", "All to mortgage", "Spend it"],
     "goal_basis": ["Gross balances", "After-tax (RRSP discounted)"],
+    "detail_view": ["💵 Money in", "📊 Balances", "Both"],
     "bonus_month": list(range(1, 13)),
     "refund_month": list(range(1, 13)),
 }
@@ -873,9 +989,45 @@ with st.expander("🧾 Tax engine — federal & Alberta brackets (editable)"):
         st.caption("Credited at the lowest bracket rate.")
     fed_brackets = parse_brackets(fed_df, FED_BRACKETS_DEFAULT)
     ab_brackets = parse_brackets(ab_df, AB_BRACKETS_DEFAULT)
-    st.caption("CPP and EI are excluded. They are identical with and without an RRSP "
-               "deduction, so they cancel out of the refund — but the tax figures below are "
-               "income tax only, not full payroll withholding.")
+
+    st.markdown("**Payroll — CPP & EI**")
+    model_cpp_ei = st.checkbox("Model CPP and EI", key="model_cpp_ei",
+                               help="Base CPP and EI are non-refundable credits; the enhanced "
+                                    "slice of CPP and all of CPP2 are deductions, so they lower "
+                                    "taxable income and can change which bracket an RRSP "
+                                    "contribution unwinds.")
+    pc1, pc2, pc3, pc4 = st.columns(4)
+    with pc1:
+        cpp_rate = st.number_input("CPP rate (%)", min_value=0.0, max_value=20.0, step=0.05,
+                                   key="cpp_rate", disabled=not model_cpp_ei)
+        cpp_base_rate = st.number_input("…of which credited (%)", min_value=0.0, max_value=20.0,
+                                        step=0.05, key="cpp_base_rate",
+                                        disabled=not model_cpp_ei,
+                                        help="The rest is the enhanced slice, which is deducted "
+                                             "from income instead of credited against tax.")
+    with pc2:
+        cpp_exempt = st.number_input("Basic exemption ($)", min_value=0.0, step=100.0,
+                                     format="%.0f", key="cpp_exempt", disabled=not model_cpp_ei)
+        cpp_ympe = st.number_input("YMPE ($)", min_value=0.0, step=100.0, format="%.0f",
+                                   key="cpp_ympe", disabled=not model_cpp_ei)
+    with pc3:
+        cpp2_rate = st.number_input("CPP2 rate (%)", min_value=0.0, max_value=20.0, step=0.05,
+                                    key="cpp2_rate", disabled=not model_cpp_ei)
+        cpp2_yampe = st.number_input("YAMPE ($)", min_value=0.0, step=100.0, format="%.0f",
+                                     key="cpp2_yampe", disabled=not model_cpp_ei)
+    with pc4:
+        ei_rate = st.number_input("EI rate (%)", min_value=0.0, max_value=20.0, step=0.01,
+                                  key="ei_rate", disabled=not model_cpp_ei)
+        ei_mie = st.number_input("EI max earnings ($)", min_value=0.0, step=100.0, format="%.0f",
+                                 key="ei_mie", disabled=not model_cpp_ei)
+    cpp_ei_bump = st.checkbox("Save the take-home freed up once CPP and EI max out",
+                              key="cpp_ei_bump", disabled=not model_cpp_ei,
+                              help="Both stop partway through the year, so pay rises for the "
+                                   "remaining months. Off = the monthly savings figure is taken "
+                                   "as an average that already allows for it.")
+    st.caption("Defaults are the 2025 employee figures. Employer-side contributions are not "
+               "modelled — they cost the household nothing. Credits beyond these and the basic "
+               "personal amount are not modelled either.")
 
 # ─── Build the configuration ──────────────────────────────────────────────────
 START_MONTH = next_month_start()
@@ -894,6 +1046,9 @@ cfg = Cfg(
     waterfall=waterfall, spill_to_invest=spill_to_invest,
     refund_month=refund_month, refund_rule=refund_rule,
     fed_brackets=fed_brackets, ab_brackets=ab_brackets, fed_bpa=fed_bpa, ab_bpa=ab_bpa,
+    model_cpp_ei=model_cpp_ei, cpp_rate=cpp_rate, cpp_base_rate=cpp_base_rate,
+    cpp_exempt=cpp_exempt, cpp_ympe=cpp_ympe, cpp2_rate=cpp2_rate, cpp2_yampe=cpp2_yampe,
+    ei_rate=ei_rate, ei_mie=ei_mie, cpp_ei_bump=cpp_ei_bump,
     goal=goal, goal_basis="net" if goal_basis.startswith("After-tax") else "gross",
     rrsp_withdraw_rate=rrsp_withdraw_rate, require_mort_paid=require_mort_paid,
     max_months=int(horizon_years) * 12, start=START_MONTH,
@@ -905,20 +1060,46 @@ if cfg.mort_bal > 0 and cfg.mort_weekly * 52 / 12 <= cfg.mort_bal * cfg.mort_rat
                f"The balance will grow unless prepayments cover the gap.")
 
 # ─── Today's tax position ─────────────────────────────────────────────────────
-sp_gross_now = cfg.spouse.income + (cfg.spouse.income * employer_pct / 100 if cfg.group_is_rrsp else 0.0)
-st.markdown("### 🧾 Tax position")
-t1, t2, t3, t4 = st.columns(4)
-t1.metric("Your marginal rate", f"{marginal_rate(cfg.you.income, cfg):.1%}",
-          f"tax {money(total_tax(cfg.you.income, cfg))}")
-t2.metric("Spouse marginal rate", f"{marginal_rate(sp_gross_now, cfg):.1%}",
-          f"tax {money(total_tax(sp_gross_now, cfg))}")
-t3.metric("Refund per $10k you contribute", money(refund_for(cfg.you.income, 10_000, cfg)),
-          "RRSP – You")
-t4.metric("Refund per $10k spouse contributes", money(refund_for(sp_gross_now, 10_000, cfg)),
-          "RRSP – Spouse")
-st.caption("Marginal rate is the combined federal + Alberta rate on the next dollar earned. "
-           "Refunds are valued as a full recalculation of tax with and without the deduction, "
-           "so a contribution straddling a bracket is priced correctly.")
+# The spouse's employer match is taxable employment income under a group RRSP, so
+# it is pensionable and insurable too and belongs in her gross here.
+sp_match_now = cfg.spouse.income * employer_pct / 100 if cfg.group_is_rrsp else 0.0
+sp_gross_now = cfg.spouse.income + sp_match_now
+sp_own_now = cfg.spouse.income * employee_pct / 100
+
+st.markdown("### 🧾 Tax position this year")
+people = [("You", cfg.you.income, 0.0), ("Spouse", sp_gross_now, sp_own_now + sp_match_now)]
+tax_rows = []
+for label, gross, rrsp_now in people:
+    base, enhanced, cpp2, ei = cpp_ei_for(gross, cfg)
+    tax_rows.append({
+        "": label,
+        "💼 Gross": money(gross),
+        "🧾 Income tax": money(total_tax(gross, cfg, rrsp_now)),
+        "🍁 CPP": money(base + enhanced + cpp2),
+        "🛟 EI": money(ei),
+        "🏠 Take-home": money(take_home(gross, cfg, rrsp_now)),
+        "📈 Marginal rate": f"{marginal_rate(gross, cfg):.1%}",
+        "💰 Refund per $10k RRSP": money(refund_for(gross, 10_000, cfg)),
+    })
+total_row = {"": "Household"}
+for col in list(tax_rows[0])[1:]:
+    if col.endswith("rate"):
+        total_row[col] = "—"
+    else:
+        total_row[col] = money(sum(float(r[col].replace("$", "").replace(",", ""))
+                                   for r in tax_rows))
+tax_rows.append(total_row)
+st.dataframe(pd.DataFrame(tax_rows), width="stretch", hide_index=True)
+st.caption(
+    ("CPP and EI are modelled: base CPP and EI are credits, while the enhanced slice of CPP "
+     "and all of CPP2 are deductions, so they lower taxable income. Both stop once the annual "
+     "maximum is reached, which is why take-home rises later in the year. "
+     if cfg.model_cpp_ei else
+     "CPP and EI are switched off in the tax engine above, so these are income tax only. ")
+    + "Income tax already reflects the RRSP contributions shown — the spouse's group plan runs "
+      "all year, so her figures are net of it. The refund column prices a *further* $10,000 "
+      "contribution as a full recalculation of tax with and without it, so a contribution "
+      "straddling a bracket is valued correctly.")
 
 # ─── Run the sweep ────────────────────────────────────────────────────────────
 pcts = sorted({min(100, max(0, p)) for p in range(int(sweep_lo), int(sweep_hi) + 1, int(sweep_step))})
@@ -1107,6 +1288,40 @@ for row in detail["rows"]:
     years.setdefault(month_date(cfg, row["idx"]).year, []).append(row)
 
 goal_row = detail["goal_idx"] if detail["goal_reached"] else None
+detail_view = st.radio("Show", CHOICES["detail_view"], horizontal=True, key="detail_view")
+show_in = detail_view in ("💵 Money in", "Both")
+show_bal = detail_view in ("📊 Balances", "Both")
+
+
+def money_in_columns(r):
+    """What went where this month, per account and per person."""
+    cols = {
+        "🧓 RRSP – You":    money(r["c_RRSP – You"]),
+        "🧓 RRSP – Spouse": money(r["c_RRSP – Spouse"]),
+        "↳ of which group plan": money(r["group"]),
+        "🛡 TFSA – You":     money(r["c_TFSA – You"]),
+        "🛡 TFSA – Spouse":  money(r["c_TFSA – Spouse"]),
+        "📇 Non-registered": money(r[f"c_{NONREG}"]),
+        "Σ Into investments": money(r["contrib_in"]),
+        "🏠 Extra to mortgage": money(r["mort_extra"]),
+        "🧾 Refund in":      money(r["refund"]),
+    }
+    if cfg.model_cpp_ei:
+        cols["💸 CPP + EI paid"] = money(r["cpp_ei"])
+    return cols
+
+
+def balance_columns(r):
+    return {
+        "🏠 Mortgage":  money(r["mort_bal"]),
+        "🧓 RRSP":      money(r["rrsp"]),
+        "🛡 TFSA":      money(r["tfsa"]),
+        "📇 Non-reg":   money(r["nonreg"]),
+        "📊 Total":     money(r["inv_bal"]),
+        "💧 After-tax": money(r["net_bal"]),
+    }
+
+
 for ytab, (yr, yrows) in zip(st.tabs([str(y) for y in years]), years.items()):
     with ytab:
         first, last = yrows[0], yrows[-1]
@@ -1115,25 +1330,44 @@ for ytab, (yr, yrows) in zip(st.tabs([str(y) for y in years]), years.items()):
                   f"{last['mort_bal'] - first['mort_bal']:+,.0f}")
         c2.metric("📊 Portfolio at year end", money(last["inv_bal"]),
                   f"{last['inv_bal'] - first['inv_bal']:+,.0f}")
-        c3.metric("💵 Invested this year", money(sum(r["invested"] for r in yrows)),
+        c3.metric("💵 Into investments", money(sum(r["contrib_in"] for r in yrows)),
                   f"{len(yrows)} mo")
         c4.metric("🧾 Refund this year", money(sum(r["refund"] for r in yrows)))
-        st.dataframe(pd.DataFrame([{
-            "Month":       r["label"] + ("  🎯" if r["idx"] == goal_row else ""),
-            "🏠 Mortgage": money(r["mort_bal"]),
-            "🧓 RRSP":     money(r["rrsp"]),
-            "🛡 TFSA":     money(r["tfsa"]),
-            "📇 Non-reg":  money(r["nonreg"]),
-            "💵 Invested": money(r["invested"]),
-            "🏠 Extra":    money(r["mort_extra"]),
-            "🧾 Refund":   money(r["refund"]),
-            "💸 Interest": money(r["mort_interest"]),
-        } for r in yrows]), width="stretch", hide_index=True,
-            height=42 * len(yrows) + 45)
+
+        table = []
+        for r in yrows:
+            row = {"Month": r["label"] + ("  🎯" if r["idx"] == goal_row else "")}
+            if show_in:
+                row.update(money_in_columns(r))
+            if show_bal:
+                row.update(balance_columns(r))
+            table.append(row)
+        if show_in:
+            # A totals line, since the per-person yearly figures are the ones worth
+            # checking against contribution room. Balances are point-in-time and
+            # would be meaningless summed, so they are blanked out.
+            totals = {"Month": f"— {yr} total —"}
+            totals.update(money_in_columns({
+                k: sum(r[k] for r in yrows) for k in
+                ["c_RRSP – You", "c_RRSP – Spouse", "group", "c_TFSA – You", "c_TFSA – Spouse",
+                 f"c_{NONREG}", "contrib_in", "mort_extra", "refund", "cpp_ei"]}))
+            if show_bal:
+                totals.update({k: "" for k in balance_columns(yrows[0])})
+            table.append(totals)
+        st.dataframe(pd.DataFrame(table), width="stretch", hide_index=True,
+                     height=42 * (len(table) + 1) + 3)
         if goal_row is not None and any(r["idx"] == goal_row for r in yrows):
             st.caption(f"🎯 Goal reached {detail['goal_reached']} — {money(goal)} "
                        + ("after tax" if cfg.goal_basis == "net" else "invested")
                        + (" with the mortgage cleared." if require_mort_paid else "."))
+
+if show_in:
+    st.caption("**of which group plan** is the slice of the spouse's RRSP funded by her payroll "
+               "contribution and the employer match, rather than out of household savings — so "
+               "it is already counted inside her RRSP column, not on top of it. "
+               "**Into investments** is the five account columns added up."
+               + (" **CPP + EI** is the household's own contributions, which stop once the "
+                  "year's maximums are reached." if cfg.model_cpp_ei else ""))
 
 # ─── Save / load settings ─────────────────────────────────────────────────────
 # Rendered into the placeholder at the top of the sidebar, but run here at the end
