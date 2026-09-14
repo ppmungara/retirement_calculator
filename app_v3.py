@@ -564,7 +564,7 @@ DEFAULTS = {
     "goal": 600_000.0, "goal_basis": "Gross balances",
     "rrsp_withdraw_rate": 25.0, "require_mort_paid": True,
     "horizon_years": 10, "lo": 1, "hi": 99, "step": 1,
-    "current_age": 35, "retire_age": 50, "swr": 4.0, "inflation": 2.5,
+    "current_age": 30, "retire_age": 50, "swr": 4.0, "inflation": 2.5,
     "fed_bpa": FED_BPA_DEFAULT, "ab_bpa": AB_BPA_DEFAULT,
     "model_cpp_ei": True, "cpp_ei_bump": False,
     "cpp_rate": CPP_RATE_DEFAULT, "cpp_base_rate": CPP_BASE_RATE_DEFAULT,
