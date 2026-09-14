@@ -137,6 +137,76 @@ you at, not on gross.
 Not every employer does this. Check a paystub: if income tax is calculated on
 gross rather than on gross less the contribution, turn the setting off.
 
+## Group RRSP, DC pension, and RRSP room
+
+The spouse's plan can be either kind, and the CRA does not treat them the same
+way. The **Plan type** setting picks one.
+
+| | Group RRSP | DC pension (DCPP) |
+| --- | --- | --- |
+| The employer's share | Taxable employment income to her | Not her income at all |
+| What she deducts | Both halves, as an RRSP deduction (line 20800) | Her half only, as an RPP deduction (line 20700) |
+| RRSP room | Both halves consume it, in the year they are paid | Neither consumes it directly |
+| Pension adjustment | None — a PA counts pension credits, "not including RRSPs or PRPPs" | PA = employer + employee contributions, reported in T4 box 52 |
+| When room is affected | Immediately | Next year: "an individual's PA in a year reduces the amount that they can contribute to an RRSP and a PRPP in the next year" |
+| Usually locked in? | No | Yes, until retirement |
+
+The same money reaches an account either way, and the tax comes out close to the
+same. What differs is *when* the room is used up, and whether the employer's
+share passes through her income on the way.
+
+On the figures the app ships with — $67,000 salary, 7% from her matched by 7%:
+
+| | Group RRSP | DC pension |
+| --- | --- | --- |
+| Gross for tax | $71,690 | $67,000 |
+| Deduction | $9,380 | $4,690 |
+| Taxable after CPP | $61,628 | $61,675 |
+| Income tax | $8,654 | $8,726 |
+
+Within $72 of each other. The real difference is the room: under a group RRSP she
+accrues $12,060 of new room each January and $9,380 of it is spent the same year,
+leaving $2,680 for anything else. Under a DC pension nothing is spent now, but
+the $9,380 pension adjustment cuts *next* January's accrual from $12,060 to
+$2,680. Same squeeze, a year apart.
+
+### How RRSP room accrues
+
+Every January the app adds, per person:
+
+    min(18% of last year's earned income, the annual dollar limit) − last year's PA
+
+with the dollar limit and the accrual percentage both editable. Room is never
+allowed to go negative, and a contribution is capped at the room available — if
+a group plan would exceed it, both halves scale back together, because both
+halves come out of the same allowance.
+
+Your own room is simpler: nothing consumes it but what you choose to put in, and
+the waterfall stops at whatever is left.
+
+### Putting the tax together
+
+For each person, each January, the app works the same order a return does:
+
+1. **Gross employment income** — salary, plus the employer's group-RRSP share if
+   the plan is one (it is a taxable benefit); a DC pension employer contribution
+   never appears here.
+2. **Deductions come off income** — RRSP or RPP contributions, plus the enhanced
+   slice of CPP and all of CPP2. What is left is taxable income.
+3. **Tax on that, bracket by bracket**, federally and again for Alberta.
+4. **Credits come off the tax** — the basic personal amount, base CPP and EI, each
+   valued at the lowest bracket rate. Tax cannot go below zero.
+5. **The refund is the difference** between that calculation and the same one run
+   without the RRSP deduction. Not the deduction times a marginal rate: a
+   contribution large enough to cross a bracket is worth less than the top rate on
+   all of it, and this prices that correctly.
+
+Contributions whose relief payroll already took at source are held out of step 5
+but kept in step 2 — they still lower taxable income, they simply have nothing
+left to pay back. That also means a *further* contribution is valued against the
+income the group deduction has already left her on, rather than against gross,
+which is usually a bracket lower.
+
 ## CPP and EI
 
 Both are modelled, and they are not treated the same way, because the CRA does
@@ -172,6 +242,9 @@ and shipping as the **2026** values:
 | CPP2 rate, YAMPE, maximum | Second additional CPP contribution rates and maximums |
 | EI rate, maximum insurable earnings, maximum premium | EI premium rates and maximums |
 | Which part of CPP is a credit and which a deduction | Line 30800 (base contributions) and line 22215 (enhanced and CPP2) |
+| RRSP and RPP deductions | Line 20800 (RRSP) and line 20700 (RPP) |
+| How the RRSP deduction limit is built, and that a PA excludes RRSPs | How contributions affect your RRSP deduction limit |
+| That a DC pension adjustment is employer plus employee contributions, sits in T4 box 52, and reduces next year's room | T4084 Pension Adjustment Guide |
 | RRSP and TFSA dollar limits | MP, RRSP, DPSP, TFSA limits and the YMPE |
 
 `test_sources.py` in this repository (run `python test_sources.py`) checks the
@@ -203,11 +276,8 @@ the second-highest bracket — modelled, though it only bites above $181,440.
 
 ### Two settings worth understanding
 
-**Group RRSP vs DC pension.** Under a group RRSP the employer match is a taxable
-benefit, both halves are deductible, and both consume her RRSP room. Under a DC
-pension the employer money is not income, only her half is deductible, and a
-pension adjustment reduces *next* year's room instead. Same cash into the
-account, materially different tax and room consequences.
+**Group RRSP vs DC pension.** Same cash into the account, materially different
+tax and room consequences — see *Group RRSP, DC pension, and RRSP room* above.
 
 **Gross vs after-tax goal.** A dollar in an RRSP is not a dollar in a TFSA — one
 is taxed on the way out. If most of your portfolio ends up in RRSPs, the gross
