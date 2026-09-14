@@ -157,8 +157,33 @@ saved is a setting: leave it off and the monthly savings figure is treated as an
 average that already allows for it.
 
 Rates, the basic exemption, YMPE, YAMPE and the EI maximum are all editable
-alongside the tax brackets, and default to the 2025 employee figures. The whole
+alongside the tax brackets, and default to the 2026 employee figures. The whole
 thing can be switched off with one checkbox, which reverts to income tax only.
+
+## Where the numbers come from
+
+Every statutory figure is the CRA's, verified against canada.ca in September 2026
+and shipping as the **2026** values:
+
+| | Source |
+| --- | --- |
+| Federal and Alberta brackets, basic personal amounts, credit rates | T4127 Payroll Deductions Formulas, 122nd edition (effective January 1 2026), and the CRA's tax rates and brackets page |
+| CPP rate, exemption, YMPE, maximum | CPP contribution rates, maximums and exemptions |
+| CPP2 rate, YAMPE, maximum | Second additional CPP contribution rates and maximums |
+| EI rate, maximum insurable earnings, maximum premium | EI premium rates and maximums |
+| Which part of CPP is a credit and which a deduction | Line 30800 (base contributions) and line 22215 (enhanced and CPP2) |
+| RRSP and TFSA dollar limits | MP, RRSP, DPSP, TFSA limits and the YMPE |
+
+`test_sources.py` in this repository (run `python test_sources.py`) checks the
+engine against the maximums the CRA publishes rather than against itself — the maximum employee CPP of $4,230.45, CPP2 of $416.00 and
+EI premium of $1,123.07 for 2026, and the 2025 line 22215 maximum of $1,074.00
+made up of $678.00 and $396.00. Those are numbers the CRA states outright, so if
+the arithmetic drifted they would fail even with the right inputs.
+
+Two consequences worth knowing. The federal lowest rate is **14%** for 2026,
+down from 14.5% in 2025, and non-refundable credits are valued at it. And the
+federal basic personal amount is **clawed back** from $16,452 to $14,829 across
+the second-highest bracket — modelled, though it only bites above $181,440.
 
 ## The settings
 
@@ -173,7 +198,7 @@ thing can be switched off with one checkbox, which reverts to income tax only.
 | **🏠 Mortgage** | Balance, rate, weekly payment, the annual prepayment privilege, and what happens to blocked or freed-up cash. |
 | **🪜 Allocation waterfall** | The order invested dollars fill accounts. Each fills to its room before the next starts. |
 | **🧾 Tax refund** | When it lands, and whether it follows the split, goes entirely to investments, entirely to the mortgage, or is spent. |
-| **🏖 Coast to retirement** | Your age now and at retirement, the safe withdrawal rate, and an inflation rate used only to restate the result in today's dollars. |
+| **🏖 Coast to retirement** | Your birth month and year, the retirement age, the safe withdrawal rate, and an inflation rate used only to restate the result in today's dollars. |
 | **🎯 Goal & horizon** | The target, whether it is measured gross or after tax, whether the mortgage must be clear, the horizon, and which splits to sweep. |
 
 ### Two settings worth understanding
@@ -206,7 +231,8 @@ withdrawal rate so the two are comparable.
   what a safe withdrawal on it would pay compared with today's spending. The
   figure is restated in today's dollars, because a nominal balance fifteen years
   out flatters itself badly against present-day expenses. It follows the scenario
-  picked in the detail selector above it.
+  picked in the detail selector above it. Age comes from a stored birth month and
+  year rather than a number you would have to correct every birthday.
 - **Month-by-month detail** — the full schedule for any one split, tabbed by
   calendar year, with remaining contribution room at the stopping point. **Money
   in** shows which account got funded each month and by how much, per person:
@@ -224,8 +250,13 @@ Worth knowing before you lean on a number:
 
 - **Employer-side CPP and EI** are not modelled — they cost the household
   nothing. Employee contributions are.
-- **Credits beyond the basic personal amount** are not modelled, and the federal
-  BPA phase-out at high incomes is not applied.
+- **Credits beyond the basic personal amount, CPP and EI** are not modelled — no
+  spousal amount, no dependants, no medical or charitable credits, no pension
+  income amount. The BPA claw-back *is* modelled, measured on taxable income
+  where the CRA measures it on net income.
+- **Brackets and limits do not index themselves.** They ship as this year's
+  figures and stay there unless you set the indexation rate or edit the tables,
+  so a ten-year projection understates the thresholds in its later years.
 - **A flat expected return**, applied every month. No sequence-of-returns risk,
   no volatility, no rebalancing.
 - **A constant mortgage rate** — no renewal at a different rate, and the weekly
@@ -239,8 +270,7 @@ Worth knowing before you lean on a number:
   the growth of the non-registered account beyond the drag already applied.
 - **Opening balances are taken as at today** and are not re-dated as the start
   month rolls forward.
-- **Bracket defaults are the 2025 federal and Alberta schedules.** Update them in
-  the app for a different year.
+
 
 For planning purposes only. It is not tax advice.
 
@@ -252,6 +282,7 @@ For planning purposes only. It is not tax advice.
 | --- | --- |
 | `app_v3.py` | This app — the current Coast FIRE Scenario Planner. |
 | `store/` | A tiny invisible component that reads and writes browser storage. |
+| `test_sources.py` | Checks the tax engine against the figures the CRA publishes. |
 | `app_v2.py`, `app.py` | Earlier versions, kept for reference. |
 | `mortgage_payoff.py` | A standalone mortgage payoff explorer. |
 | `spending_calculator` | A spending categoriser. |
