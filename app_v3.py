@@ -40,28 +40,37 @@ MONTHS_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov"
 
 # ─── Tax engine ───────────────────────────────────────────────────────────────
 # Brackets are (upper limit, rate) pairs, lowest first. The top entry's limit is
-# ignored — the highest bracket always runs to infinity. Defaults are the 2025
+# ignored — the highest bracket always runs to infinity. Defaults are the 2026
 # federal and Alberta schedules; both tables are editable in the app, so they can
 # be rolled forward without touching this file.
-FED_BRACKETS_DEFAULT = [(57_375.0, 0.145), (114_750.0, 0.205), (177_882.0, 0.26),
-                        (253_414.0, 0.29), (float("inf"), 0.33)]
-AB_BRACKETS_DEFAULT  = [(60_000.0, 0.08), (151_234.0, 0.10), (181_481.0, 0.12),
-                        (241_974.0, 0.13), (362_961.0, 0.14), (float("inf"), 0.15)]
-FED_BPA_DEFAULT = 16_129.0
-AB_BPA_DEFAULT  = 22_323.0
+#
+# Every figure below is from the CRA, verified September 2026:
+#   brackets, BPA, credit rates  T4127 Payroll Deductions Formulas, 122nd ed.
+#                                (Jan 1 2026) and canada.ca tax-rates-brackets
+#   CPP, CPP2, EI                canada.ca payroll contribution rates and maximums
+#   RRSP and TFSA limits         canada.ca MP/RRSP/DPSP/TFSA limits and the YMPE
+FED_BRACKETS_DEFAULT = [(58_523.0, 0.14), (117_045.0, 0.205), (181_440.0, 0.26),
+                        (258_482.0, 0.29), (float("inf"), 0.33)]
+AB_BRACKETS_DEFAULT  = [(61_200.0, 0.08), (154_259.0, 0.10), (185_111.0, 0.12),
+                        (246_813.0, 0.13), (370_220.0, 0.14), (float("inf"), 0.15)]
+# Federal credits are valued at 0.14 and Alberta's at 0.08 for 2026 — in both
+# cases the lowest bracket rate, which is what `schedule_tax` uses.
+FED_BPA_DEFAULT     = 16_452.0   # clawed back to the minimum across the 29% band
+FED_BPA_MIN_DEFAULT = 14_829.0
+AB_BPA_DEFAULT      = 22_769.0
 
-# CPP and EI, 2025 employee figures. Every one of these is editable in the app.
-# CPP is split: contributions at the base rate are a non-refundable credit, while
-# the "enhanced" slice above it — and all of CPP2 — come off income as deductions.
-# EI is a credit in full.
+# CPP and EI, 2026 employee figures. Every one of these is editable in the app.
+# CPP is split the way the T1 splits it: contributions at the base rate are a
+# non-refundable credit (line 30800), while the "enhanced" slice above it and all
+# of CPP2 are deductions (line 22215). EI is a credit in full.
 CPP_RATE_DEFAULT      = 5.95     # employee rate on pensionable earnings
 CPP_BASE_RATE_DEFAULT = 4.95     # the part of that rate credited rather than deducted
 CPP_EXEMPT_DEFAULT    = 3_500.0  # basic exemption
-CPP_YMPE_DEFAULT      = 71_300.0
+CPP_YMPE_DEFAULT      = 74_600.0  # max employee CPP $4,230.45
 CPP2_RATE_DEFAULT     = 4.00
-CPP2_YAMPE_DEFAULT    = 81_200.0
-EI_RATE_DEFAULT       = 1.64
-EI_MIE_DEFAULT        = 65_700.0
+CPP2_YAMPE_DEFAULT    = 85_000.0  # max employee CPP2 $416.00
+EI_RATE_DEFAULT       = 1.63
+EI_MIE_DEFAULT        = 68_900.0  # max employee premium $1,123.07
 
 
 def bracket_tax(income, brackets):
@@ -107,11 +116,31 @@ def taxable_income(gross, cfg, rrsp_deduction=0.0):
     return max(0.0, gross - enhanced - cpp2 - max(0.0, rrsp_deduction))
 
 
+def fed_bpa_for(taxable, cfg):
+    """The federal basic personal amount, which high earners lose most of.
+
+    It is reduced in a straight line across the second-highest bracket — from
+    where that bracket starts to where the top one does — so the range follows the
+    table rather than being pinned to one year's thresholds. The CRA measures the
+    claw-back on net income; taxable income stands in for it here.
+    """
+    if len(cfg.fed_brackets) < 4 or cfg.fed_bpa_min >= cfg.fed_bpa:
+        return cfg.fed_bpa
+    lo, hi = cfg.fed_brackets[-3][0], cfg.fed_brackets[-2][0]
+    if not 0 < lo < hi < float("inf"):
+        return cfg.fed_bpa
+    if taxable <= lo:
+        return cfg.fed_bpa
+    if taxable >= hi:
+        return cfg.fed_bpa_min
+    return cfg.fed_bpa - (cfg.fed_bpa - cfg.fed_bpa_min) * (taxable - lo) / (hi - lo)
+
+
 def total_tax(gross, cfg, rrsp_deduction=0.0):
     """Combined federal and Alberta income tax on a salary."""
     base, _, _, ei = cpp_ei_for(gross, cfg)
     taxable = taxable_income(gross, cfg, rrsp_deduction)
-    return (schedule_tax(taxable, cfg.fed_brackets, cfg.fed_bpa + base + ei)
+    return (schedule_tax(taxable, cfg.fed_brackets, fed_bpa_for(taxable, cfg) + base + ei)
             + schedule_tax(taxable, cfg.ab_brackets, cfg.ab_bpa + base + ei))
 
 
@@ -244,6 +273,7 @@ class Cfg:
     fed_brackets: list
     ab_brackets: list
     fed_bpa: float
+    fed_bpa_min: float
     ab_bpa: float
     # payroll
     model_cpp_ei: bool
@@ -264,6 +294,8 @@ class Cfg:
     # horizon
     max_months: int
     start: date
+    birth_year: int
+    birth_month: int
 
 
 def month_date(cfg, idx):
@@ -275,6 +307,19 @@ def month_date(cfg, idx):
 def month_label(cfg, idx):
     d = month_date(cfg, idx)
     return f"{MONTHS_ABBR[d.month - 1]} {d.year}"
+
+
+def age_at(cfg, idx):
+    """Age in years at projection month `idx`, from the stored birth month."""
+    d = month_date(cfg, idx)
+    return ((d.year - cfg.birth_year) * 12 + (d.month - cfg.birth_month)) / 12
+
+
+def months_to_age(cfg, idx, target_age):
+    """Months from projection month `idx` until `target_age`. Negative if past."""
+    d = month_date(cfg, idx)
+    months_lived = (d.year - cfg.birth_year) * 12 + (d.month - cfg.birth_month)
+    return int(round(target_age * 12 - months_lived))
 
 
 def next_month_start(today=None):
@@ -551,7 +596,7 @@ DEFAULTS = {
     "rrsp_room_you": 50_000.0, "rrsp_room_sp": 20_000.0,
     "tfsa_room_you": 63_000.0, "tfsa_room_sp": 0.0,
     "tfsa_annual": 7_000.0, "rrsp_accrual_pct": 18.0,
-    "rrsp_annual_max": 32_490.0, "limit_indexation": 0.0,
+    "rrsp_annual_max": 33_810.0, "limit_indexation": 0.0,
     "ytd_you": 0.0, "ytd_sp": 0.0,
     "employee_pct": 7.0, "employer_pct": 7.0,
     "plan_kind": "Group RRSP", "payroll_from_savings": False, "source_relief": True,
@@ -564,8 +609,8 @@ DEFAULTS = {
     "goal": 600_000.0, "goal_basis": "Gross balances",
     "rrsp_withdraw_rate": 25.0, "require_mort_paid": True,
     "horizon_years": 10, "lo": 1, "hi": 99, "step": 1,
-    "current_age": 30, "retire_age": 50, "swr": 4.0, "inflation": 2.5,
-    "fed_bpa": FED_BPA_DEFAULT, "ab_bpa": AB_BPA_DEFAULT,
+    "birth_year": 1996, "birth_month": 4, "retire_age": 50, "swr": 4.0, "inflation": 2.5,
+    "fed_bpa": FED_BPA_DEFAULT, "fed_bpa_min": FED_BPA_MIN_DEFAULT, "ab_bpa": AB_BPA_DEFAULT,
     "model_cpp_ei": True, "cpp_ei_bump": False,
     "cpp_rate": CPP_RATE_DEFAULT, "cpp_base_rate": CPP_BASE_RATE_DEFAULT,
     "cpp_exempt": CPP_EXEMPT_DEFAULT, "cpp_ympe": CPP_YMPE_DEFAULT,
@@ -585,6 +630,7 @@ CHOICES = {
     "detail_view": ["💵 Money in", "📊 Balances", "Both"],
     "bonus_month": list(range(1, 13)),
     "refund_month": list(range(1, 13)),
+    "birth_month": list(range(1, 13)),
 }
 BRACKET_KEYS = ("fed_brackets", "ab_brackets")
 
@@ -782,6 +828,10 @@ def d(key):
 consume_pending()
 seed_widgets()
 
+# The projection always starts next month; the sidebar needs it before the Cfg is
+# built, so it is computed once here and reused there.
+START_MONTH_PREVIEW = next_month_start()
+
 # ─── Sidebar ──────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## ⚙️ Settings")
@@ -948,8 +998,10 @@ with st.sidebar:
                    "chosen here.")
 
     with st.expander("🏖 Coast to retirement"):
-        current_age = st.number_input("Your age today", min_value=16, max_value=90, step=1,
-                                      key="current_age")
+        birth_year = st.number_input("Birth year", min_value=1920, max_value=2020, step=1,
+                                     key="birth_year")
+        birth_month = st.selectbox("Birth month", CHOICES["birth_month"],
+                                   format_func=lambda m: MONTHS_ABBR[m - 1], key="birth_month")
         retire_age = st.number_input("Retirement age", min_value=16, max_value=100, step=1,
                                      key="retire_age")
         swr = st.number_input("Safe withdrawal rate (%)", min_value=0.5, max_value=15.0,
@@ -958,8 +1010,12 @@ with st.sidebar:
                                     key="inflation",
                                     help="Used only to restate the retirement figure in today's "
                                          "dollars — it does not affect the projection itself.")
-        st.caption("Once the goal is met, contributions stop and the portfolio is left to grow "
-                   "on its own until retirement. That is what makes it a *coast* number.")
+        _age_now = ((START_MONTH_PREVIEW.year - int(birth_year)) * 12
+                    + (START_MONTH_PREVIEW.month - int(birth_month))) / 12
+        st.caption(f"That makes you **{_age_now:.0f}** when the projection starts. Storing the "
+                   f"birth month rather than an age means it stays right next year. Once the goal "
+                   f"is met, contributions stop and the portfolio is left to grow on its own "
+                   f"until retirement — that is what makes it a *coast* number.")
 
     with st.expander("🎯 Goal & horizon", expanded=True):
         goal = st.number_input("Target portfolio ($)",  min_value=10_000.0,
@@ -1044,6 +1100,10 @@ with st.expander("🧾 Tax engine — federal & Alberta brackets (editable)"):
         st.markdown("**Personal amounts**")
         fed_bpa = st.number_input("Federal BPA ($)",  min_value=0.0,
                                   step=100.0, format="%.0f", key="fed_bpa")
+        fed_bpa_min = st.number_input("Federal BPA, fully clawed back ($)", min_value=0.0,
+                                      step=100.0, format="%.0f", key="fed_bpa_min",
+                                      help="The federal amount falls in a straight line to this "
+                                           "across the second-highest bracket.")
         ab_bpa = st.number_input("Alberta BPA ($)",  min_value=0.0,
                                  step=100.0, format="%.0f", key="ab_bpa")
         st.caption("Credited at the lowest bracket rate.")
@@ -1090,7 +1150,7 @@ with st.expander("🧾 Tax engine — federal & Alberta brackets (editable)"):
                "personal amount are not modelled either.")
 
 # ─── Build the configuration ──────────────────────────────────────────────────
-START_MONTH = next_month_start()
+START_MONTH = START_MONTH_PREVIEW
 cfg = Cfg(
     you=Person("You", inc_you, rrsp_bal_you, tfsa_bal_you, rrsp_room_you, tfsa_room_you, ytd_you),
     spouse=Person("Spouse", inc_sp, rrsp_bal_sp, tfsa_bal_sp, rrsp_room_sp, tfsa_room_sp,
@@ -1106,13 +1166,14 @@ cfg = Cfg(
     prepay_pct=prepay_pct, prepay_enforce=prepay_enforce, redirect_freed=redirect_freed,
     waterfall=waterfall, spill_to_invest=spill_to_invest,
     refund_month=refund_month, refund_rule=refund_rule,
-    fed_brackets=fed_brackets, ab_brackets=ab_brackets, fed_bpa=fed_bpa, ab_bpa=ab_bpa,
+    fed_brackets=fed_brackets, ab_brackets=ab_brackets, fed_bpa=fed_bpa, fed_bpa_min=fed_bpa_min, ab_bpa=ab_bpa,
     model_cpp_ei=model_cpp_ei, cpp_rate=cpp_rate, cpp_base_rate=cpp_base_rate,
     cpp_exempt=cpp_exempt, cpp_ympe=cpp_ympe, cpp2_rate=cpp2_rate, cpp2_yampe=cpp2_yampe,
     ei_rate=ei_rate, ei_mie=ei_mie, cpp_ei_bump=cpp_ei_bump,
     goal=goal, goal_basis="net" if goal_basis.startswith("After-tax") else "gross",
     rrsp_withdraw_rate=rrsp_withdraw_rate, require_mort_paid=require_mort_paid,
     max_months=int(horizon_years) * 12, start=START_MONTH,
+    birth_year=int(birth_year), birth_month=int(birth_month),
 )
 
 if cfg.mort_bal > 0 and cfg.mort_weekly * 52 / 12 <= cfg.mort_bal * cfg.mort_rate / 12:
@@ -1553,8 +1614,8 @@ if not detail["goal_reached"]:
             f"is no point to coast from. Pick a split that does, or ease the goal.")
 else:
     goal_month = detail["goal_idx"]
-    age_at_goal = current_age + goal_month / 12
-    months_coasting = int(round((retire_age - age_at_goal) * 12))
+    age_at_goal = age_at(cfg, goal_month)
+    months_coasting = months_to_age(cfg, goal_month, retire_age)
     stop_row = detail["rows"][-1]      # the run stops at the goal, so this is that month
 
     if months_coasting <= 0:
