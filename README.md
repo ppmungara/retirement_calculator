@@ -117,6 +117,26 @@ cancel out and do not affect the refund. Both bracket tables and the basic
 personal amounts are editable in the app under **🧾 Tax engine**, so they can be
 rolled forward to a new tax year without touching the code.
 
+### Relief taken at source
+
+A group plan is usually deducted at source: payroll withholds less income tax on
+each cheque, so the benefit is already in the take-home pay and there is nothing
+left to refund at filing. The **Tax relief on the plan is taken at source**
+setting says so, and is on by default.
+
+It matters. With it off, the app credits the plan a refund on contributions the
+household has already had the benefit of — phantom cash, worth about $240/mo on
+the shipped figures and enough to pull the goal two months earlier than it really
+arrives.
+
+Either way the contributions consume RRSP room, land in the account, and lower
+taxable income. And either way a *further*, discretionary contribution still
+earns a real refund — valued on the income the group deduction has already left
+you at, not on gross.
+
+Not every employer does this. Check a paystub: if income tax is calculated on
+gross rather than on gross less the contribution, turn the setting off.
+
 ## CPP and EI
 
 Both are modelled, and they are not treated the same way, because the CRA does
@@ -148,11 +168,12 @@ thing can be switched off with one checkbox, which reverts to income tax only.
 | **💵 Cash flow** | Monthly savings and its growth, plus a separate annual bonus. Monthly expenses are reference only — they size the 25× FIRE number in the caption and are not deducted from savings. |
 | **🏦 Current balances** | What is invested today, per account. |
 | **📥 Contribution room** | Each person's remaining RRSP and TFSA room, how much new room accrues each January, and anything already contributed this calendar year. |
-| **🤝 Spouse group plan** | Employee and employer percentages, whether it is a group RRSP or a DC pension, and whether her share comes out of the savings figure or off her paycheque. |
+| **🤝 Spouse group plan** | Employee and employer percentages, whether it is a group RRSP or a DC pension, whether her share comes out of the savings figure or off her paycheque, and whether payroll already takes the tax relief at source. |
 | **📈 Returns** | One expected return, plus a tax drag applied only to the non-registered account. |
 | **🏠 Mortgage** | Balance, rate, weekly payment, the annual prepayment privilege, and what happens to blocked or freed-up cash. |
 | **🪜 Allocation waterfall** | The order invested dollars fill accounts. Each fills to its room before the next starts. |
 | **🧾 Tax refund** | When it lands, and whether it follows the split, goes entirely to investments, entirely to the mortgage, or is spent. |
+| **🏖 Coast to retirement** | Your age now and at retirement, the safe withdrawal rate, and an inflation rate used only to restate the result in today's dollars. |
 | **🎯 Goal & horizon** | The target, whether it is measured gross or after tax, whether the mortgage must be clear, the horizon, and which splits to sweep. |
 
 ### Two settings worth understanding
@@ -178,6 +199,14 @@ withdrawal rate so the two are comparable.
 - **Charts** — every split overlaid. The legend is off because the sweep is too
   wide for one; hover any line to identify it. **Account Mix** shows where the
   money sits over time under the winning split.
+- **🏖 Coasting to retirement** — the point of a coast number. Contributions stop
+  the month the goal is met, and what is already invested is left to grow on its
+  own until retirement age. Shows the age the goal lands at, the years spent
+  coasting, the portfolio that produces at retirement gross and after tax, and
+  what a safe withdrawal on it would pay compared with today's spending. The
+  figure is restated in today's dollars, because a nominal balance fifteen years
+  out flatters itself badly against present-day expenses. It follows the scenario
+  picked in the detail selector above it.
 - **Month-by-month detail** — the full schedule for any one split, tabbed by
   calendar year, with remaining contribution room at the stopping point. **Money
   in** shows which account got funded each month and by how much, per person:
@@ -205,6 +234,9 @@ Worth knowing before you lean on a number:
   anniversary.
 - **Cash the privilege blocks, with spilling off, leaves the plan.** It is
   reported as idle, not banked and redeployed later.
+- **Coasting assumes nothing is withdrawn** before retirement and nothing further
+  is contributed after the goal, at a flat return, with no allowance for tax on
+  the growth of the non-registered account beyond the drag already applied.
 - **Opening balances are taken as at today** and are not re-dated as the start
   month rolls forward.
 - **Bracket defaults are the 2025 federal and Alberta schedules.** Update them in
